@@ -9,16 +9,17 @@ import base64, csv, io, json, os, sys, time, zipfile, urllib.request
 import jwt, requests
 
 APPS = [
-    # id, label, GA4 property id, colour
-    ("bloom",   "Bloom",        "537653605", "#22c55e"),
-    ("forge",   "Forge",        "541285886", "#f97316"),
-    ("astral",  "Astral",       "541399507", "#a855f7"),
-    ("maze",    "Maze Glass",   "537950677", "#06b6d4"),
-    ("nine",    "Nine",         "551676033", "#ec4899"),
-    ("trivio",  "Trivio",       "540459488", "#eab308"),
-    ("stayfit", "StayFit",      "547686026", "#ef4444"),
+    # id, label, GA4 property id, colour. Order and colours are fixed (legend + chart adjacency
+    # validated for colour-vision deficiency on the dark surface, dataviz palette, 02/09/2026).
+    ("maze",    "Maze Glass",   "537950677", "#3987e5"),
+    ("forge",   "Forge",        "541285886", "#d95926"),
+    ("bloom",   "Bloom",        "537653605", "#199e70"),
+    ("trivio",  "Trivio",       "540459488", "#c98500"),
+    ("nine",    "Nine",         "551676033", "#d55181"),
+    ("astral",  "Astral",       "541399507", "#9085e9"),
+    ("stayfit", "StayFit",      "547686026", "#e66767"),
 ]
-DAYS = int(os.environ.get("GLOBE_DAYS", "30"))
+DAYS = int(os.environ.get("GLOBE_DAYS", "90"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.environ.get("GLOBE_DATA", os.path.join(HERE, "static", "data.json"))
 CITIES_TXT = os.environ.get("GLOBE_CITIES", os.path.join(HERE, "cities15000.txt"))
