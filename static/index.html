@@ -5,20 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Fleet Globe</title>
 <style>
-  :root { --bg:#05070d; --fg:#e6e9f0; --muted:#8b93a7; --panel:rgba(12,16,28,.86); --line:rgba(255,255,255,.1); --grid:rgba(255,255,255,.07); }
+  :root { --bg:#05070d; --fg:#e6e9f0; --muted:#8b93a7; --panel:rgba(12,16,28,.86); --line:rgba(255,255,255,.1);
+          --dbg:#0f1218; --card:#161b26; --card-line:#232a38; --grid:#232a38; --accent:#7c9cff; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; overflow:hidden; touch-action:none; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; overflow:hidden; touch-action:none; }
+  body.dash { background:var(--dbg); overflow:auto; touch-action:auto; }
   #globe { position:absolute; inset:0; z-index:0; }
-  #graph { position:absolute; inset:0; z-index:5; display:none; padding:calc(64px + env(safe-area-inset-top)) 16px 190px 216px; }
-  #graph.on { display:block; }
-  #graph .frame { position:relative; width:100%; height:100%; }
-  #chart { width:100%; height:100%; display:block; }
   .panel { position:absolute; z-index:10; background:var(--panel); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border:1px solid var(--line); border-radius:14px; padding:12px 14px; touch-action:manipulation; }
   #legend { top:calc(12px + env(safe-area-inset-top)); left:12px; min-width:186px; }
   #legend h1 { font-size:15px; margin:0 0 6px; font-weight:600; }
   #legend .app { display:flex; align-items:center; gap:8px; padding:6px 2px; cursor:pointer; user-select:none; min-height:32px; }
   #legend .app.off { opacity:.35; }
-  #legend .dot { width:11px; height:11px; border-radius:50%; flex:none; box-shadow:0 0 8px currentColor; }
+  .dot { width:11px; height:11px; border-radius:50%; flex:none; display:inline-block; }
+  #legend .dot { box-shadow:0 0 8px currentColor; }
   #legend .n { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
   #legend .total { border-top:1px solid var(--line); margin-top:6px; padding-top:6px; color:var(--muted); display:flex; }
   #legend .total b { color:var(--fg); margin-left:auto; font-variant-numeric:tabular-nums; }
@@ -28,14 +27,48 @@
   .row + .row { margin-top:10px; }
   #date { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; flex:1 1 auto; }
   .seg { display:flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-  .seg button { background:transparent; color:var(--muted); border:0; padding:9px 13px; min-height:38px; cursor:pointer; font:inherit; touch-action:manipulation; }
+  .seg button { background:transparent; color:var(--muted); border:0; padding:9px 13px; min-height:38px; cursor:pointer; font:inherit; touch-action:manipulation; white-space:nowrap; }
   .seg button.on { background:rgba(255,255,255,.14); color:var(--fg); }
-  input[type=range] { width:100%; margin:12px 0 2px; accent-color:#7c9cff; touch-action:pan-x; height:28px; }
-  .graph-only { display:none; } body.graph .graph-only { display:flex; } body.graph .globe-only { display:none !important; }
+  input[type=range] { width:100%; margin:12px 0 2px; accent-color:var(--accent); touch-action:pan-x; height:28px; }
   #meta { position:absolute; z-index:10; right:12px; top:calc(58px + env(safe-area-inset-top)); color:var(--muted); font-size:12px; text-align:right; max-width:40vw; }
   #tip { position:absolute; z-index:20; pointer-events:none; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:12px; display:none; max-width:260px; }
   #tip b { display:block; font-size:13px; }
   #tip .r { display:flex; gap:8px; align-items:center; } #tip .r i { width:8px; height:8px; border-radius:50%; display:inline-block; } #tip .r span:last-child { margin-left:auto; font-variant-numeric:tabular-nums; }
+  body.dash #globe, body.dash #legend, body.dash #controls, body.dash #meta, body.dash #view { display:none; }
+
+  /* ---- dashboard */
+  #dash { display:none; max-width:1180px; margin:0 auto; padding:calc(18px + env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom)); }
+  body.dash #dash { display:block; }
+  #dash header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+  #dash h1 { font-size:20px; margin:0; font-weight:650; letter-spacing:-.2px; }
+  #dash .sub { color:var(--muted); font-size:12.5px; }
+  #dash .spacer { flex:1 1 auto; }
+  #dash .seg { border-color:var(--card-line); background:var(--card); }
+  #dash .seg button.on { background:rgba(124,156,255,.16); color:var(--fg); }
+  #dash .filters { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .tiles { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+  .tile { background:var(--card); border:1px solid var(--card-line); border-radius:12px; padding:14px 16px; cursor:pointer; transition:border-color .15s; }
+  .tile.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  .tile .k { color:var(--muted); font-size:12.5px; }
+  .tile .v { font-size:28px; font-weight:650; letter-spacing:-.5px; margin:4px 0 2px; font-variant-numeric:tabular-nums; }
+  .tile .s { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .card { background:var(--card); border:1px solid var(--card-line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:14px; font-weight:600; margin:0 0 2px; }
+  .card .hint { color:var(--muted); font-size:12px; margin-bottom:10px; }
+  .chartbox { position:relative; height:360px; }
+  .leg { display:flex; gap:14px; flex-wrap:wrap; margin:10px 0 4px; }
+  .leg .l { display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer; user-select:none; color:var(--fg); padding:4px 2px; }
+  .leg .l.off { opacity:.35; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { text-align:right; padding:9px 10px; border-bottom:1px solid var(--card-line); font-size:13.5px; }
+  th { color:var(--muted); font-weight:500; font-size:12px; letter-spacing:.2px; }
+  th:first-child, td:first-child { text-align:left; }
+  td.app { display:flex; align-items:center; gap:8px; }
+  tr.off { opacity:.35; }
+  tbody tr { cursor:pointer; }
+  tfoot td { color:var(--fg); font-weight:600; border-bottom:0; }
+  .bar { height:4px; border-radius:2px; background:var(--card-line); position:relative; margin-top:6px; }
+  .bar i { position:absolute; left:0; top:0; bottom:0; border-radius:2px; }
   @media (max-width:640px) {
     #legend { min-width:0; padding:10px 12px; font-size:13px; }
     #legend h1 { display:none; }
@@ -43,15 +76,19 @@
     #meta { display:none; }
     #date { font-size:14px; }
     .seg button { padding:9px 11px; font-size:13px; }
-    #graph { padding:calc(56px + env(safe-area-inset-top)) 8px 200px 8px; }
+    #dash { padding-left:12px; padding-right:12px; }
+    .tiles { grid-template-columns:1fr; }
+    .tile .v { font-size:24px; }
+    .chartbox { height:260px; }
+    th, td { padding:8px 6px; font-size:12.5px; }
+    .hide-m { display:none; }
   }
 </style>
 </head>
 <body>
 <div id="globe"></div>
-<div id="graph"><div class="frame"><canvas id="chart"></canvas></div></div>
 <div id="legend" class="panel"><h1>Fleet Globe</h1><div id="apps"></div><div class="total"><span id="totalLabel">users</span><b id="total">0</b></div></div>
-<div id="view" class="panel seg"><button data-v="globe" class="on">Globe</button><button data-v="graph">Graph</button></div>
+<div id="view" class="panel seg"><button data-v="globe" class="on">Globe</button><button data-v="dash">Dashboard</button></div>
 <div id="meta"></div>
 <div id="controls" class="panel">
   <div class="row">
@@ -65,21 +102,38 @@
       <button data-p="iOS">iOS</button>
       <button data-p="Android">Android</button>
     </div>
-    <div class="seg globe-only" id="range">
+    <div class="seg" id="range">
       <button data-m="1" class="on">Day</button>
       <button data-m="7">7 days</button>
       <button data-m="30">30 days</button>
     </div>
-    <div class="seg graph-only" id="period">
-      <button data-d="7">7 days</button>
-      <button data-d="30" class="on">30 days</button>
-      <button data-d="90">90 days</button>
-    </div>
   </div>
   <div class="row"><div id="date"></div><span id="note" style="color:var(--muted);font-size:12px"></span></div>
-  <input id="slider" class="globe-only" type="range" min="0" max="0" value="0" aria-label="Day">
+  <input id="slider" type="range" min="0" max="0" value="0" aria-label="Day">
 </div>
 <div id="tip"></div>
+
+<section id="dash">
+  <header>
+    <div><h1>Fleet dashboard</h1><div class="sub" id="dsub"></div></div>
+    <div class="spacer"></div>
+    <div class="seg" id="dview"><button data-v="globe">Globe</button><button data-v="dash" class="on">Dashboard</button></div>
+  </header>
+  <div class="filters">
+    <div class="seg" id="dplatform"><button data-p="all" class="on">All platforms</button><button data-p="iOS">iOS</button><button data-p="Android">Android</button></div>
+    <div class="seg" id="period"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+  </div>
+  <div class="tiles" id="tiles"></div>
+  <div class="card">
+    <h2 id="ctitle"></h2><div class="hint" id="chint"></div>
+    <div class="chartbox"><canvas id="chart"></canvas></div>
+    <div class="leg" id="dleg"></div>
+  </div>
+  <div class="card">
+    <h2>Per app</h2><div class="hint" id="thint"></div>
+    <div style="overflow-x:auto"><table id="tbl"><thead><tr><th>App</th><th>Active</th><th>First-time</th><th>Uninstalls</th><th class="hide-m">iOS</th><th class="hide-m">Android</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div>
+  </div>
+</section>
 
 <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.35.0/dist/globe.gl.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -90,19 +144,23 @@
   const enabled = Object.fromEntries(apps.map(a => [a.id, true]));
   const dates = [...new Set(data.points.map(p => p.d))].sort();
   const LABEL = { u: 'active users', n: 'first-time users', r: 'uninstalls' };
+  const TITLE = { u: 'Active users', n: 'First-time users', r: 'Uninstalls' };
   let idx = dates.length - 1, span = 1, metric = 'u', platform = 'all', view = 'globe', period = 30;
   const fmt = s => s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : 'no data';
   const inPlatform = p => platform === 'all' || p.p === platform;
+  const updated = data.generated.replace('T', ' ').slice(0, 16) + ' UTC';
 
-  // ---- legend (tap an app to hide / show it; shared by both views)
+  // ---- globe legend
   const appsEl = document.getElementById('apps');
   for (const a of apps) {
-    const el = document.createElement('div'); el.className = 'app';
+    const el = document.createElement('div'); el.className = 'app'; el.dataset.id = a.id;
     el.innerHTML = `<span class="dot" style="color:${a.color};background:${a.color}"></span><span>${a.name}</span><span class="n" id="n-${a.id}">0</span>`;
-    el.addEventListener('click', () => { enabled[a.id] = !enabled[a.id]; el.classList.toggle('off', !enabled[a.id]); render(); });
+    el.addEventListener('click', () => toggleApp(a.id));
     appsEl.appendChild(el);
   }
-  document.getElementById('meta').textContent = 'GA4 · updated ' + data.generated.replace('T', ' ').slice(0, 16) + ' UTC';
+  function toggleApp(id) { enabled[id] = !enabled[id]; render(); }
+  document.getElementById('meta').textContent = 'GA4 · updated ' + updated;
+  document.getElementById('dsub').textContent = 'GA4 active, first-time and uninstalled users per app · updated ' + updated + (data.excluded ? ' · ' + data.excluded : '');
 
   // ---- globe
   const globe = Globe()(document.getElementById('globe'))
@@ -117,7 +175,7 @@
   globe.controls().autoRotate = true; globe.controls().autoRotateSpeed = 0.6;
   globe.controls().addEventListener('start', () => { globe.controls().autoRotate = false; });
   globe.pointOfView({ lat: 25, lng: 10, altitude: innerWidth < 640 ? 2.8 : 2.1 }, 0);
-  addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
+  addEventListener('resize', () => { globe.width(innerWidth).height(innerHeight); if (view === 'dash') render(); });
 
   function selectedPoints() {
     const days = new Set(dates.slice(Math.max(0, idx - span + 1), idx + 1));
@@ -133,31 +191,33 @@
     return [...agg.values()];
   }
 
-  // ---- graph: one line per app, the chosen metric per day, over the chosen period
+  // ---- dashboard data: per app per day (selected metric) + per app totals of all three metrics, split by platform
+  function series() {
+    const days = dates.slice(Math.max(0, dates.length - period)), dayset = new Set(days);
+    const per = {}, tot = {};
+    for (const a of apps) { per[a.id] = Object.fromEntries(days.map(d => [d, 0])); tot[a.id] = { u: 0, n: 0, r: 0, iOS: 0, Android: 0 }; }
+    for (const p of data.points) {
+      if (!dayset.has(p.d) || !inPlatform(p)) continue;
+      per[p.a][p.d] += p[metric] || 0;
+      const t = tot[p.a]; t.u += p.u; t.n += p.n; t.r += p.r; t[p.p] = (t[p.p] || 0) + (p[metric] || 0);
+    }
+    return { days, per, tot };
+  }
+
   Chart.defaults.color = '#8b93a7'; Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   const chart = new Chart(document.getElementById('chart'), {
-    type: 'line',
-    data: { labels: [], datasets: [] },
+    type: 'line', data: { labels: [], datasets: [] },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
-      elements: { line: { borderWidth: 2, tension: 0.25 }, point: { radius: 3, hoverRadius: 6, hitRadius: 12, borderWidth: 2, borderColor: '#05070d' } },
-      plugins: {
-        legend: { display: false },
-        tooltip: { enabled: false, external: ctx => graphTip(ctx) },
-      },
+      layout: { padding: { top: 6, right: 8 } },
+      elements: { line: { borderWidth: 2, tension: 0.25 }, point: { radius: 0, hoverRadius: 5, hitRadius: 14, borderWidth: 2, borderColor: '#161b26' } },
+      plugins: { legend: { display: false }, tooltip: { enabled: false, external: ctx => graphTip(ctx) } },
       scales: {
-        x: { grid: { color: 'rgba(0,0,0,0)' }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: innerWidth < 640 ? 5 : 10 }, border: { color: 'var(--line)' } },
-        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,.07)' }, ticks: { precision: 0 }, border: { display: false } },
+        x: { grid: { display: false }, border: { color: '#232a38' }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: innerWidth < 640 ? 5 : 10 } },
+        y: { beginAtZero: true, grid: { color: '#232a38' }, border: { display: false }, ticks: { precision: 0 } },
       },
     },
   });
-  function series() {
-    const days = dates.slice(Math.max(0, dates.length - period));
-    const per = {}; for (const a of apps) per[a.id] = Object.fromEntries(days.map(d => [d, 0]));
-    const dayset = new Set(days);
-    for (const p of data.points) { if (dayset.has(p.d) && inPlatform(p)) per[p.a][p.d] += p[metric] || 0; }
-    return { days, per };
-  }
   function graphTip(ctx) {
     const tip = document.getElementById('tip'), t = ctx.tooltip;
     if (!t || t.opacity === 0 || !t.dataPoints?.length) { tip.style.display = 'none'; return; }
@@ -167,39 +227,60 @@
     const box = ctx.chart.canvas.getBoundingClientRect();
     tip.style.display = 'block';
     tip.style.left = Math.min(innerWidth - 270, box.left + t.caretX + 14) + 'px';
-    tip.style.top = (box.top + t.caretY - 10) + 'px';
+    tip.style.top = (box.top + scrollY + t.caretY - 10) + 'px';
+  }
+
+  function renderDash() {
+    const s = series(), days = s.days;
+    const label = `${fmt(days[0])} → ${fmt(days[days.length - 1])}` + (platform === 'all' ? '' : ' · ' + platform);
+    // tiles: one per metric, click selects the metric shown in the chart
+    const sum = k => apps.reduce((x, a) => x + (enabled[a.id] ? s.tot[a.id][k] : 0), 0);
+    const split = k => { let i = 0, an = 0; for (const p of data.points) if (new Set(days).has(p.d) && enabled[p.a] && inPlatform(p)) { if (p.p === 'iOS') i += p[k] || 0; else if (p.p === 'Android') an += p[k] || 0; } return { i, an }; };
+    document.getElementById('tiles').innerHTML = ['u', 'n', 'r'].map(k => {
+      const sp = split(k);
+      const s2 = k === 'r' ? `Android ${sp.an} · iOS has no uninstall signal` : `iOS ${sp.i} · Android ${sp.an}`;
+      return `<div class="tile ${metric === k ? 'on' : ''}" data-k="${k}"><div class="k">${TITLE[k]}</div><div class="v">${sum(k)}</div><div class="s">${s2}</div></div>`;
+    }).join('');
+    document.querySelectorAll('#tiles .tile').forEach(t => t.addEventListener('click', () => { metric = t.dataset.k; syncSeg('metric', 'k', metric); render(); }));
+    // chart
+    document.getElementById('ctitle').textContent = `${TITLE[metric]} per day`;
+    document.getElementById('chint').textContent = label;
+    chart.data.labels = days.map(fmt);
+    chart.data.datasets = apps.filter(a => enabled[a.id]).map(a => ({ label: a.name, data: days.map(d => s.per[a.id][d]), borderColor: a.color, backgroundColor: a.color, pointBackgroundColor: a.color }));
+    chart.options.scales.x.ticks.maxTicksLimit = innerWidth < 640 ? 5 : 10;
+    chart.update();
+    document.getElementById('dleg').innerHTML = apps.map(a => `<span class="l ${enabled[a.id] ? '' : 'off'}" data-id="${a.id}"><span class="dot" style="background:${a.color}"></span>${a.name}</span>`).join('');
+    document.querySelectorAll('#dleg .l').forEach(l => l.addEventListener('click', () => toggleApp(l.dataset.id)));
+    // table
+    const rows = apps.slice().sort((a, b) => s.tot[b.id][metric] - s.tot[a.id][metric]);
+    const max = Math.max(1, ...apps.map(a => s.tot[a.id][metric]));
+    document.querySelector('#tbl tbody').innerHTML = rows.map(a => { const t = s.tot[a.id]; return `<tr class="${enabled[a.id] ? '' : 'off'}" data-id="${a.id}">
+      <td><div class="app"><span class="dot" style="background:${a.color}"></span>${a.name}</div><div class="bar"><i style="width:${(t[metric] / max * 100).toFixed(1)}%;background:${a.color}"></i></div></td>
+      <td>${t.u}</td><td>${t.n}</td><td>${t.r}</td><td class="hide-m">${t.iOS}</td><td class="hide-m">${t.Android}</td></tr>`; }).join('');
+    document.querySelectorAll('#tbl tbody tr').forEach(r => r.addEventListener('click', () => toggleApp(r.dataset.id)));
+    document.querySelector('#tbl tfoot').innerHTML = `<tr><td>Total (shown apps)</td><td>${sum('u')}</td><td>${sum('n')}</td><td>${sum('r')}</td><td class="hide-m">${split(metric).i}</td><td class="hide-m">${split(metric).an}</td></tr>`;
+    document.getElementById('thint').textContent = `${label} · iOS / Android columns show ${LABEL[metric]} · tap a row to hide an app`;
   }
 
   function render() {
-    document.body.classList.toggle('graph', view === 'graph');
-    document.getElementById('graph').classList.toggle('on', view === 'graph');
-    document.getElementById('totalLabel').textContent = LABEL[metric];
-    document.getElementById('note').textContent = metric === 'r' ? 'Android only (GA4 app_remove)' : (platform === 'all' ? '' : platform);
+    document.body.classList.toggle('dash', view === 'dash');
+    document.querySelectorAll('#legend .app').forEach(el => el.classList.toggle('off', !enabled[el.dataset.id]));
+    if (view === 'dash') { renderDash(); return; }
+    const pts = selectedPoints(); globe.pointsData(pts);
     const per = Object.fromEntries(apps.map(a => [a.id, 0])); let total = 0;
-    if (view === 'globe') {
-      const pts = selectedPoints(); globe.pointsData(pts);
-      for (const p of pts) { per[p.a] += p.v; total += p.v; }
-      const d = dates[idx] || '';
-      document.getElementById('date').textContent = span === 1 ? fmt(d) : `${fmt(dates[Math.max(0, idx - span + 1)])} → ${fmt(d)}`;
-      document.getElementById('slider').value = idx;
-    } else {
-      const s = series();
-      chart.data.labels = s.days.map(fmt);
-      chart.data.datasets = apps.filter(a => enabled[a.id]).map(a => ({
-        label: a.name, data: s.days.map(d => s.per[a.id][d]), borderColor: a.color, backgroundColor: a.color, pointBackgroundColor: a.color, spanGaps: true,
-      }));
-      chart.options.scales.x.ticks.maxTicksLimit = innerWidth < 640 ? 5 : 10;
-      chart.update();
-      for (const a of apps) { const sum = Object.values(s.per[a.id]).reduce((x, y) => x + y, 0); per[a.id] = sum; if (enabled[a.id]) total += sum; }
-      document.getElementById('date').textContent = `${fmt(s.days[0])} → ${fmt(s.days[s.days.length - 1])} · ${LABEL[metric]} per day`;
-      document.getElementById('tip').style.display = 'none';
-    }
+    for (const p of pts) { per[p.a] += p.v; total += p.v; }
     for (const a of apps) document.getElementById('n-' + a.id).textContent = enabled[a.id] ? per[a.id] : '–';
     document.getElementById('total').textContent = total;
+    document.getElementById('totalLabel').textContent = LABEL[metric];
+    document.getElementById('note').textContent = metric === 'r' ? 'Android only (GA4 app_remove)' : (platform === 'all' ? '' : platform);
+    const d = dates[idx] || '';
+    document.getElementById('date').textContent = span === 1 ? fmt(d) : `${fmt(dates[Math.max(0, idx - span + 1)])} → ${fmt(d)}`;
+    document.getElementById('slider').value = idx;
   }
 
   const slider = document.getElementById('slider'); slider.max = Math.max(0, dates.length - 1); slider.value = idx;
   slider.addEventListener('input', () => { idx = +slider.value; render(); });
+  function syncSeg(id, attr, value) { document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('on', b.dataset[attr] === String(value))); }
   function segment(id, attr, apply) {
     const btns = [...document.querySelectorAll('#' + id + ' button')];
     for (const b of btns) b.addEventListener('click', e => { e.preventDefault(); apply(b.dataset[attr]); btns.forEach(x => x.classList.toggle('on', x === b)); render(); });
@@ -207,11 +288,12 @@
   segment('range', 'm', v => { span = +v; });
   segment('period', 'd', v => { period = +v; });
   segment('metric', 'k', v => { metric = v; });
-  segment('platform', 'p', v => { platform = v; });
-  segment('view', 'v', v => { view = v; });
-  addEventListener('resize', () => { if (view === 'graph') render(); });
+  segment('platform', 'p', v => { platform = v; syncSeg('dplatform', 'p', v); });
+  segment('dplatform', 'p', v => { platform = v; syncSeg('platform', 'p', v); });
+  segment('view', 'v', v => { view = v; syncSeg('dview', 'v', v); });
+  segment('dview', 'v', v => { view = v; syncSeg('view', 'v', v); });
 
-  // ---- globe tooltip (hover on desktop, tap on touch)
+  // ---- globe tooltip
   const tip = document.getElementById('tip'); let mouse = { x: 0, y: 0 };
   addEventListener('pointermove', e => { mouse = { x: e.clientX, y: e.clientY }; if (view === 'globe' && tip.style.display === 'block') place(); });
   function place() { tip.style.left = Math.min(innerWidth - 270, mouse.x + 14) + 'px'; tip.style.top = (mouse.y + 14) + 'px'; }
