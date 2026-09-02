@@ -82,7 +82,19 @@ def _report(token, prop, body):
     return r.json().get("rows", [])
 
 
-DIMS = [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "city"}, {"name": "platform"}]
+DIMS = [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "city"}, {"name": "platform"}, {"name": "deviceModel"}]
+
+# Test traffic that GA4 counts as real users (measured on StayFit, 02/09/2026: 137 "new users" for an
+# app that was never on the App Store): iOS Simulator runs report deviceModel "arm64", and Apple's
+# App Review devices sit in the towns around Cupertino. Both are dropped before anything is counted.
+SIMULATOR_MODELS = {"arm64", "x86_64", "iPhone99,7"}
+APPLE_REVIEW_CITIES = {"Cupertino", "Saratoga", "San Jose", "Santa Clara", "Sunnyvale", "Los Gatos", "Campbell"}
+
+
+def is_test_traffic(platform, city, model):
+    if model in SIMULATOR_MODELS:
+        return True
+    return platform == "iOS" and city in APPLE_REVIEW_CITIES
 
 
 def run_report(token, prop, start, end):
@@ -98,6 +110,8 @@ def run_report(token, prop, start, end):
     for row in users:
         d = [x["value"] for x in row["dimensionValues"]]
         m = [int(float(x["value"])) for x in row["metricValues"]]
+        if is_test_traffic(d[4], d[3], d[5]):
+            continue
         rows[tuple(d)] = {"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
                           "users": m[0], "new": m[1], "removed": 0}
     removed = _report(token, prop, {"dateRanges": [{"startDate": start, "endDate": end}], "dimensions": DIMS,
@@ -106,10 +120,20 @@ def run_report(token, prop, start, end):
                                                                    "stringFilter": {"matchType": "EXACT", "value": "app_remove"}}}})
     for row in removed or []:
         d = [x["value"] for x in row["dimensionValues"]]
+        if is_test_traffic(d[4], d[3], d[5]):
+            continue
         n = int(float(row["metricValues"][0]["value"]))
         rows.setdefault(tuple(d), {"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
                                    "users": 0, "new": 0, "removed": 0})["removed"] += n
-    return list(rows.values())
+    merged = {}
+    for k, v in rows.items():
+        mk = k[:5]
+        if mk in merged:
+            for f in ("users", "new", "removed"):
+                merged[mk][f] += v[f]
+        else:
+            merged[mk] = dict(v)
+    return list(merged.values())
 
 
 def main():
@@ -136,6 +160,7 @@ def main():
     data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "days": DAYS,
             "apps": [{"id": a, "name": n, "color": c} for a, n, _, c in APPS],
             "metrics": {"u": "Active users", "n": "First-time users", "r": "Uninstalls (Android only)"},
+            "excluded": "iOS Simulator runs and Apple App Review devices (Cupertino area) are not counted",
             "rows_per_app": status, "points": points}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
