@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Globe</title>
+<style>
+  :root { --bg:#05070d; --fg:#e6e9f0; --muted:#8b93a7; --panel:rgba(12,16,28,.82); --line:rgba(255,255,255,.08); }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; overflow:hidden; }
+  #globe { position:absolute; inset:0; }
+  .panel { position:absolute; background:var(--panel); backdrop-filter:blur(10px); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  #legend { top:14px; left:14px; min-width:190px; }
+  #legend h1 { font-size:15px; margin:0 0 8px; font-weight:600; letter-spacing:.2px; }
+  #legend .app { display:flex; align-items:center; gap:8px; padding:4px 2px; cursor:pointer; user-select:none; }
+  #legend .app.off { opacity:.35; }
+  #legend .dot { width:11px; height:11px; border-radius:50%; flex:none; box-shadow:0 0 8px currentColor; }
+  #legend .n { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+  #legend .total { border-top:1px solid var(--line); margin-top:6px; padding-top:6px; color:var(--muted); display:flex; }
+  #legend .total b { color:var(--fg); margin-left:auto; font-variant-numeric:tabular-nums; }
+  #controls { left:50%; bottom:18px; transform:translateX(-50%); width:min(720px, calc(100vw - 28px)); }
+  #controls .row { display:flex; align-items:center; gap:12px; }
+  #date { font-size:16px; font-weight:600; min-width:200px; font-variant-numeric:tabular-nums; }
+  #mode { display:flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  #mode button { background:transparent; color:var(--muted); border:0; padding:6px 12px; cursor:pointer; font:inherit; }
+  #mode button.on { background:rgba(255,255,255,.12); color:var(--fg); }
+  #play { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:6px 10px; cursor:pointer; font:inherit; }
+  input[type=range] { width:100%; margin:10px 0 2px; accent-color:#7c9cff; }
+  #meta { position:absolute; right:14px; top:14px; color:var(--muted); font-size:12px; text-align:right; }
+  #tip { position:absolute; pointer-events:none; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:12px; display:none; max-width:240px; }
+  #tip b { display:block; font-size:13px; }
+  @media (max-width:600px) { #legend { min-width:150px; font-size:13px; } #date { min-width:140px; font-size:14px; } }
+</style>
+</head>
+<body>
+<div id="globe"></div>
+<div id="legend" class="panel"><h1>Fleet Globe</h1><div id="apps"></div><div class="total">users<b id="total">0</b></div></div>
+<div id="meta"></div>
+<div id="controls" class="panel">
+  <div class="row">
+    <div id="date"></div>
+    <div id="mode"><button data-m="1" class="on">Day</button><button data-m="7">7 days</button></div>
+    <button id="play" title="Play through the days">▶</button>
+    <span id="hint" style="margin-left:auto;color:var(--muted);font-size:12px">drag to spin · hover a dot</span>
+  </div>
+  <input id="slider" type="range" min="0" max="0" value="0">
+</div>
+<div id="tip"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2.35.0/dist/globe.gl.min.js"></script>
+<script>
+(async function () {
+  const data = await (await fetch('/data.json?ts=' + Date.now())).json();
+  const apps = data.apps, colour = Object.fromEntries(apps.map(a => [a.id, a.color]));
+  const enabled = Object.fromEntries(apps.map(a => [a.id, true]));
+  const dates = [...new Set(data.points.map(p => p.d))].sort();
+  let idx = dates.length - 1, window_ = 1, timer = null;
+
+  // ---- legend
+  const appsEl = document.getElementById('apps');
+  for (const a of apps) {
+    const el = document.createElement('div'); el.className = 'app'; el.dataset.id = a.id;
+    el.innerHTML = `<span class="dot" style="color:${a.color};background:${a.color}"></span><span>${a.name}</span><span class="n" id="n-${a.id}">0</span>`;
+    el.onclick = () => { enabled[a.id] = !enabled[a.id]; el.classList.toggle('off', !enabled[a.id]); render(); };
+    appsEl.appendChild(el);
+  }
+  document.getElementById('meta').textContent = 'GA4 active users · updated ' + data.generated.replace('T', ' ').slice(0, 16) + ' UTC';
+
+  // ---- globe
+  const globe = Globe()(document.getElementById('globe'))
+    .globeImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.31.0/example/img/earth-night.jpg')
+    .bumpImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.31.0/example/img/earth-topology.png')
+    .backgroundImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.31.0/example/img/night-sky.png')
+    .atmosphereColor('#7c9cff').atmosphereAltitude(0.18)
+    .pointLat('lat').pointLng('lng').pointColor(p => colour[p.a]).pointAltitude(p => 0.01 + Math.min(0.25, Math.log10(p.u + 1) * 0.06))
+    .pointRadius(p => 0.25 + Math.min(1.2, Math.log10(p.u + 1) * 0.45)).pointsMerge(false)
+    .ringsData([]).ringColor(() => '#7c9cff').ringMaxRadius(3).ringPropagationSpeed(1).ringRepeatPeriod(1200)
+    .onPointHover(p => showTip(p));
+  globe.controls().autoRotate = true; globe.controls().autoRotateSpeed = 0.6;
+  globe.controls().addEventListener('start', () => { globe.controls().autoRotate = false; });
+  globe.pointOfView({ lat: 25, lng: 10, altitude: 2.1 }, 0);
+  addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
+
+  // ---- selection
+  function selected() {
+    const days = new Set(dates.slice(Math.max(0, idx - window_ + 1), idx + 1));
+    const agg = new Map();  // app|lat|lng -> point
+    for (const p of data.points) {
+      if (!days.has(p.d) || !enabled[p.a]) continue;
+      const k = p.a + '|' + p.lat + '|' + p.lng;
+      const cur = agg.get(k);
+      if (cur) { cur.u += p.u; cur.platforms.add(p.p); } else agg.set(k, { ...p, platforms: new Set([p.p]) });
+    }
+    return [...agg.values()];
+  }
+  function render() {
+    const pts = selected();
+    globe.pointsData(pts);
+    const per = Object.fromEntries(apps.map(a => [a.id, 0])); let total = 0;
+    for (const p of pts) { per[p.a] += p.u; total += p.u; }
+    for (const a of apps) document.getElementById('n-' + a.id).textContent = enabled[a.id] ? per[a.id] : '–';
+    document.getElementById('total').textContent = total;
+    const d = dates[idx] || '';
+    const fmt = s => s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : 'no data';
+    document.getElementById('date').textContent = window_ === 1 ? fmt(d) : `${fmt(dates[Math.max(0, idx - 6)])} → ${fmt(d)}`;
+    document.getElementById('slider').value = idx;
+  }
+  const slider = document.getElementById('slider'); slider.max = Math.max(0, dates.length - 1); slider.value = idx;
+  slider.oninput = () => { idx = +slider.value; render(); };
+  document.querySelectorAll('#mode button').forEach(b => b.onclick = () => {
+    window_ = +b.dataset.m; document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x === b)); render();
+  });
+  document.getElementById('play').onclick = function () {
+    if (timer) { clearInterval(timer); timer = null; this.textContent = '▶'; return; }
+    this.textContent = '⏸'; if (idx >= dates.length - 1) idx = 0;
+    timer = setInterval(() => { idx = (idx + 1) % dates.length; render(); }, 900);
+  };
+
+  // ---- tooltip
+  const tip = document.getElementById('tip'); let mouse = { x: 0, y: 0 };
+  addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; if (tip.style.display === 'block') place(); });
+  function place() { tip.style.left = Math.min(innerWidth - 250, mouse.x + 14) + 'px'; tip.style.top = (mouse.y + 14) + 'px'; }
+  function showTip(p) {
+    if (!p) { tip.style.display = 'none'; return; }
+    const name = apps.find(a => a.id === p.a).name;
+    tip.innerHTML = `<b style="color:${colour[p.a]}">${name}</b>${p.city ? p.city + ', ' : ''}${p.country}<br>${p.u} user${p.u > 1 ? 's' : ''} · ${[...p.platforms].join(' + ')}`;
+    tip.style.display = 'block'; place();
+  }
+  render();
+})();
+</script>
+</body>
+</html>

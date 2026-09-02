@@ -1,0 +1,5 @@
+cities15000.txt
+static/data.json
+static/data.json.tmp
+__pycache__/
+*.json.tmp
