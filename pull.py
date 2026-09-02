@@ -72,21 +72,43 @@ def load_cities():
     return best, centroids
 
 
-def run_report(token, prop, start, end):
-    body = {"dateRanges": [{"startDate": start, "endDate": end}],
-            "dimensions": [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "city"}, {"name": "platform"}],
-            "metrics": [{"name": "activeUsers"}], "limit": 100000}
+def _report(token, prop, body):
     r = requests.post(f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport",
                       headers={"Authorization": f"Bearer {token}"}, json=body, timeout=60)
     if r.status_code != 200:
         print(f"property {prop}: {r.status_code} {r.text[:200]}", file=sys.stderr)
+        return None
+    return r.json().get("rows", [])
+
+
+DIMS = [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "city"}, {"name": "platform"}]
+
+
+def run_report(token, prop, start, end):
+    """Rows keyed by (date, cc, city, platform) with active users, new users and uninstalls.
+
+    Uninstalls = count of GA4's automatically collected `app_remove` event, which Google only
+    records on Android; iOS rows therefore always carry 0 there."""
+    rows = {}
+    users = _report(token, prop, {"dateRanges": [{"startDate": start, "endDate": end}], "dimensions": DIMS,
+                                  "metrics": [{"name": "activeUsers"}, {"name": "newUsers"}], "limit": 100000})
+    if users is None:
         return []
-    out = []
-    for row in r.json().get("rows", []):
+    for row in users:
         d = [x["value"] for x in row["dimensionValues"]]
-        out.append({"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
-                    "users": int(row["metricValues"][0]["value"])})
-    return out
+        m = [int(float(x["value"])) for x in row["metricValues"]]
+        rows[tuple(d)] = {"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
+                          "users": m[0], "new": m[1], "removed": 0}
+    removed = _report(token, prop, {"dateRanges": [{"startDate": start, "endDate": end}], "dimensions": DIMS,
+                                    "metrics": [{"name": "eventCount"}], "limit": 100000,
+                                    "dimensionFilter": {"filter": {"fieldName": "eventName",
+                                                                   "stringFilter": {"matchType": "EXACT", "value": "app_remove"}}}})
+    for row in removed or []:
+        d = [x["value"] for x in row["dimensionValues"]]
+        n = int(float(row["metricValues"][0]["value"]))
+        rows.setdefault(tuple(d), {"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
+                                   "users": 0, "new": 0, "removed": 0})["removed"] += n
+    return list(rows.values())
 
 
 def main():
@@ -109,9 +131,10 @@ def main():
                 continue
             points.append({"a": app_id, "d": r["date"], "lat": round(lat, 3), "lng": round(lng, 3),
                            "city": city if exact else "", "cc": cc, "country": r["country"],
-                           "p": r["platform"], "u": r["users"]})
+                           "p": r["platform"], "u": r["users"], "n": r["new"], "r": r["removed"]})
     data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "days": DAYS,
             "apps": [{"id": a, "name": n, "color": c} for a, n, _, c in APPS],
+            "metrics": {"u": "Active users", "n": "First-time users", "r": "Uninstalls (Android only)"},
             "rows_per_app": status, "points": points}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
