@@ -16,8 +16,9 @@ APPS = [
     ("bloom",   "Bloom",        "537653605", "#199e70"),
     ("trivio",  "Trivio",       "540459488", "#c98500"),
     ("nine",    "Nine",         "551676033", "#d55181"),
-    ("astral",  "Astral",       "541399507", "#9085e9"),
+    ("astral",  "Astral",       "552700468", "#9085e9"),   # re-linked 03/09/2026 (old property 541399507 unreachable)
     ("stayfit", "StayFit",      "547686026", "#e66767"),
+    ("puzzle",  "Puzzle Glass", "552735224", "#008300"),   # Analytics enabled 03/09/2026
 ]
 DAYS = int(os.environ.get("GLOBE_DAYS", "90"))
 HERE = os.path.dirname(os.path.abspath(__file__))
