@@ -43,14 +43,18 @@ BOT_RE = re.compile(r"bot|crawl|spider|slurp|bingpreview|facebookexternalhit|hea
 SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|phpmyadmin|admin\.php|vendor/|cgi-bin/|\.well-known/traffic-advice|owa/|autodiscover)|\.php(\?|$)", re.I)
 MOBILE_RE = re.compile(r"Mobile|Android|iPhone|iPad|iPod", re.I)
 PAGE_RE = re.compile(r"^/[^.?]*(\.html?)?(\?.*)?$")   # a page, not an asset
+ASSET_RE = re.compile(r"\.(js|mjs|css|png|jpe?g|webp|avif|gif|svg|ico|woff2?|ttf|map)(\?|$)|^/_next/|^/static/", re.I)
+# A browser loads a page AND its assets; a scanner with a browser User-Agent fetches pages only
+# (measured 24/08: 450 "visitors" on each of the four Astral sites the same day). A client IP counts as
+# a visitor only once it has requested both a page and an asset on that site that day.
 
 
 def site_of(host):
     h = (host or "").lower().split(":")[0]
     if h.startswith("www."):
         h = h[4:]
-    if h == "legal.taoufikjabbari.dev":
-        return None
+    if h == "legal.taoufikjabbari.dev" or h.startswith("api."):
+        return None        # the legal site is noindex; API hosts are app traffic, counted in the mobile fleet
     for suffix, sid, _, _ in SITES:
         if h == suffix or h.endswith("." + suffix):
             return sid
@@ -101,12 +105,29 @@ def parse(path, reader):
             city = ((g.get("city") or {}).get("names") or {}).get("en") or ""
             device = "Mobile" if MOBILE_RE.search(ua) else "Desktop"
             key = "|".join([device, str(round(loc["latitude"], 2)), str(round(loc["longitude"], 2)), city, cc, country])
-            d = out.setdefault(day, {}).setdefault(sid, {"cells": {}, "ips": set()})
-            cell = d["cells"].setdefault(key, {"ips": set(), "pv": 0})
+            d = out.setdefault(day, {}).setdefault(sid, {"cells": {}, "ips": set(), "seen": {}})
+            cell = d["cells"].setdefault(key, {"ips": set(), "pv": 0, "cand": {}})
             h = ip_hash(ip)
-            cell["ips"].add(h); d["ips"].add(h)
-            if PAGE_RE.match(path_):
+            is_page, is_asset = bool(PAGE_RE.match(path_)), bool(ASSET_RE.search(path_))
+            flags = cell["cand"].setdefault(h, [False, False])
+            flags[0] |= is_page; flags[1] |= is_asset
+            if is_page:
                 cell["pv"] += 1
+    # keep only the IPs that behaved like a browser (page + asset) somewhere on the site that day
+    for day, sites in out.items():
+        for sid, d in sites.items():
+            ok = set()
+            for cell in d["cells"].values():
+                for h, (pg, asset) in cell["cand"].items():
+                    if pg: d["seen"].setdefault(h, [False, False])[0] = True
+                    if asset: d["seen"].setdefault(h, [False, False])[1] = True
+            ok = {h for h, (pg, asset) in d["seen"].items() if pg and asset}
+            for key in list(d["cells"]):
+                cell = d["cells"][key]
+                cell["ips"] = {h for h in cell["cand"] if h in ok}
+                if not cell["ips"]:
+                    del d["cells"][key]
+            d["ips"] = ok
     return out
 
 
