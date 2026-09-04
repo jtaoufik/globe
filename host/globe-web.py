@@ -39,7 +39,8 @@ SITES = [
     ("taoufikjabbari.dev", "taoufik",      "taoufikjabbari.dev", "#a06a2c"),
 ]
 BOT_RE = re.compile(r"bot|crawl|spider|slurp|bingpreview|facebookexternalhit|headless|lighthouse|monitor|uptime|curl|wget|python-requests|semrush|ahrefs|mj12|googlebot|google-inspectiontool|storebot-google", re.I)
-SCAN_RE = re.compile(r"^/(wp-|wordpress|xmlrpc\.php|\.env|\.git|phpmyadmin|admin\.php|vendor/|cgi-bin/|\.well-known/traffic-advice|owa/|autodiscover)|\.php(\?|$)", re.I)
+# anywhere in the path: scanners also probe /en/wp-json/... on the localized sites
+SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|phpmyadmin|admin\.php|vendor/|cgi-bin/|\.well-known/traffic-advice|owa/|autodiscover)|\.php(\?|$)", re.I)
 MOBILE_RE = re.compile(r"Mobile|Android|iPhone|iPad|iPod", re.I)
 PAGE_RE = re.compile(r"^/[^.?]*(\.html?)?(\?.*)?$")   # a page, not an asset
 
@@ -80,7 +81,7 @@ def parse(path, reader):
             if SCAN_RE.search(path_):
                 continue
             st = int(r.get("DownstreamStatus") or 0)
-            if st >= 400:
+            if st >= 300:          # redirects and errors are not visits; the follow-up 2xx request is
                 continue
             ip = r.get("request_Cf-Connecting-Ip") or r.get("ClientHost") or ""
             if not ip or ip.startswith("10.") or ip.startswith("172.1") or ip.startswith("192.168."):
