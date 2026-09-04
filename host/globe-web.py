@@ -85,7 +85,10 @@ def parse(path, reader):
             if SCAN_RE.search(path_):
                 continue
             st = int(r.get("DownstreamStatus") or 0)
-            if st >= 300:          # redirects and errors are not visits; the follow-up 2xx request is
+            is_asset_req = bool(ASSET_RE.search(path_))
+            # redirects and errors are not visits (the follow-up 2xx request is); a 304 on an asset is
+            # a browser revalidating its cache, which is exactly the browser signal we want to keep
+            if st >= 300 and not (is_asset_req and st == 304):
                 continue
             ip = r.get("request_Cf-Connecting-Ip") or r.get("ClientHost") or ""
             if not ip or ip.startswith("10.") or ip.startswith("172.1") or ip.startswith("192.168."):
