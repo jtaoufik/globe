@@ -42,7 +42,7 @@ BOT_RE = re.compile(r"bot|crawl|spider|slurp|bingpreview|facebookexternalhit|hea
 # anywhere in the path: scanners also probe /en/wp-json/... on the localized sites
 SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|phpmyadmin|admin\.php|vendor/|cgi-bin/|\.well-known/traffic-advice|owa/|autodiscover)|\.php(\?|$)", re.I)
 MOBILE_RE = re.compile(r"Mobile|Android|iPhone|iPad|iPod", re.I)
-PAGE_RE = re.compile(r"^/[^.?]*(\.html?)?(\?.*)?$")   # a page, not an asset
+PAGE_RE = re.compile(r"^(?!/api/)(?!/(icon|apple-icon|favicon|opengraph-image|twitter-image|manifest)\b)/[^.?]*(\.html?)?(\?.*)?$")   # a page: not an asset, not an API or icon route
 ASSET_RE = re.compile(r"\.(js|mjs|css|png|jpe?g|webp|avif|gif|svg|ico|woff2?|ttf|map)(\?|$)|^/_next/|^/static/", re.I)
 # A browser loads a page AND its assets; a scanner with a browser User-Agent fetches pages only
 # (measured 24/08: 450 "visitors" on each of the four Astral sites the same day). A client IP counts as
