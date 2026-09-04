@@ -4,7 +4,7 @@
 Env: GLOBE_PASSWORD (required), GLOBE_USER (default "taoufik"), PORT (default 8080),
 GLOBE_REFRESH_HOURS (default 6). /healthz answers without auth for Coolify's healthcheck.
 """
-import base64, os, subprocess, sys, threading, time
+import base64, json, os, subprocess, sys, threading, time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,12 +30,41 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_response(401); self.send_header("WWW-Authenticate", 'Basic realm="globe"')
             self.send_header("Content-Length", "0"); self.end_headers()
             return
-        if self.path.startswith("/data.json"):
+        path = self.path.split("?")[0]
+        if path in ("/", "/index.html"):
+            self.path = "/choose.html"          # fleet chooser: mobile apps or websites
+        elif path in ("/mobile", "/web", "/mobile/", "/web/"):
+            self.path = "/index.html"           # same page, the script reads the fleet from the URL
+        elif path == "/data.json":
             self.path = "/data.json"
+        elif path == "/data-web.json":
+            self.path = "/data-web.json"
         super().do_GET()
 
+    def do_POST(self):
+        """/ingest: the box's globe-web.py posts the websites dataset (basic auth, JSON body)."""
+        if self.headers.get("Authorization") != EXPECTED:
+            self.send_response(401); self.send_header("Content-Length", "0"); self.end_headers(); return
+        if self.path.split("?")[0] != "/ingest":
+            self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers(); return
+        n = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(n)
+        try:
+            doc = json.loads(body)
+            assert isinstance(doc.get("points"), list) and isinstance(doc.get("apps"), list)
+        except Exception as e:
+            self.send_response(400); self.send_header("Content-Length", "0"); self.end_headers(); return
+        target = os.path.join(STATIC, "data-web.json")
+        tmp = target + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(body)
+        os.replace(tmp, target)
+        out = b"ok %d points" % len(doc["points"])
+        self.send_response(200); self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
     def end_headers(self):
-        if self.path.startswith("/data.json"):
+        if self.path.startswith("/data.json") or self.path.startswith("/data-web.json"):
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
 

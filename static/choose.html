@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fleet Globe</title>
+<style>
+  :root { --bg:#05070d; --fg:#e6e9f0; --muted:#8b93a7; --card:rgba(12,16,28,.86); --line:rgba(255,255,255,.1); --accent:#7c9cff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg) radial-gradient(ellipse at 50% 120%, rgba(124,156,255,.18), transparent 60%); color:var(--fg); font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; }
+  main { min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; gap:22px; }
+  h1 { font-size:22px; font-weight:650; margin:0; letter-spacing:-.2px; }
+  p { color:var(--muted); margin:0; text-align:center; max-width:440px; }
+  .cards { display:grid; grid-template-columns:repeat(2, minmax(0, 300px)); gap:16px; width:100%; max-width:640px; }
+  a.card { display:block; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px 20px; color:var(--fg); text-decoration:none; transition:border-color .15s, transform .15s; }
+  a.card:hover, a.card:focus-visible { border-color:var(--accent); transform:translateY(-2px); outline:0; }
+  .card .icon { font-size:34px; line-height:1; margin-bottom:12px; }
+  .card b { display:block; font-size:17px; margin-bottom:4px; }
+  .card span { color:var(--muted); font-size:13px; }
+  .card .st { margin-top:12px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  @media (max-width:560px) { .cards { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fleet Globe</h1>
+  <p>Where people used your products, day by day. Pick a fleet; both views share the same globe, dashboard and filters.</p>
+  <div class="cards">
+    <a class="card" href="/mobile"><div class="icon">📱</div><b>Mobile apps</b><span>GA4 active, first-time and uninstalled users per app, iOS and Android.</span><div class="st" id="st-mobile"></div></a>
+    <a class="card" href="/web"><div class="icon">🌐</div><b>Websites</b><span>Visitors from the server logs per site, desktop and mobile, no cookies needed.</span><div class="st" id="st-web"></div></a>
+  </div>
+</main>
+<script>
+(async () => {
+  for (const [id, file] of [['st-mobile', '/data.json'], ['st-web', '/data-web.json']]) {
+    try {
+      const d = await (await fetch(file + '?ts=' + Date.now())).json();
+      const last = [...new Set(d.points.map(p => p.d))].sort().pop() || '';
+      const yday = d.points.filter(p => p.d === last).reduce((s, p) => s + (p.u || 0), 0);
+      document.getElementById(id).textContent = last ? `${d.apps.length} ${id === 'st-web' ? 'sites' : 'apps'} · ${yday} on ${last.slice(0, 4)}-${last.slice(4, 6)}-${last.slice(6, 8)} · updated ${d.generated.slice(0, 16).replace('T', ' ')} UTC` : 'no data yet';
+    } catch (e) { document.getElementById(id).textContent = 'no data yet'; }
+  }
+})();
+</script>
+</body>
+</html>

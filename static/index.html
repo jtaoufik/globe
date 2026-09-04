@@ -13,7 +13,10 @@
   #globe { position:absolute; inset:0; z-index:0; }
   .panel { position:absolute; z-index:10; background:var(--panel); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border:1px solid var(--line); border-radius:14px; padding:12px 14px; touch-action:manipulation; }
   #legend { top:calc(12px + env(safe-area-inset-top)); left:12px; min-width:186px; }
-  #legend h1 { font-size:15px; margin:0 0 6px; font-weight:600; }
+  #legend h1 { font-size:15px; margin:0 0 6px; font-weight:600; display:flex; align-items:center; }
+  #legend h1 .switch { margin-left:auto; color:var(--muted); text-decoration:none; font-size:16px; padding:0 4px; }
+  #legend h1 .switch:hover { color:var(--fg); }
+  @media (max-width:640px) { #legend h1 { display:flex; font-size:13px; } }
   #legend .app { display:flex; align-items:center; gap:8px; padding:6px 2px; cursor:pointer; user-select:none; min-height:32px; }
   #legend .app.off { opacity:.35; }
   .dot { width:11px; height:11px; border-radius:50%; flex:none; display:inline-block; }
@@ -116,6 +119,7 @@
 <section id="dash">
   <header>
     <div><h1>Fleet dashboard</h1><div class="sub" id="dsub"></div></div>
+    <a href="/" class="seg" style="padding:8px 12px;color:var(--muted);text-decoration:none">⇄ Other fleet</a>
     <div class="spacer"></div>
     <div class="seg" id="dview"><button data-v="globe">Globe</button><button data-v="dash" class="on">Dashboard</button></div>
   </header>
@@ -139,12 +143,26 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 (async function () {
-  const data = await (await fetch('/data.json?ts=' + Date.now())).json();
+  // One page, two fleets: /mobile reads data.json (GA4 apps), /web reads data-web.json (Traefik
+  // access logs of the websites). The data file carries its own labels: metrics, platforms, source.
+  const FLEET = location.pathname.startsWith('/web') ? 'web' : 'mobile';
+  const data = await (await fetch((FLEET === 'web' ? '/data-web.json' : '/data.json') + '?ts=' + Date.now())).json();
   const apps = data.apps, colour = Object.fromEntries(apps.map(a => [a.id, a.color]));
+  const PLATFORMS = data.platforms || ['iOS', 'Android'];
+  const NOUN = data.noun || 'app';
+  document.title = FLEET === 'web' ? 'Fleet Globe · Websites' : 'Fleet Globe · Mobile apps';
+  document.querySelector('#legend h1').innerHTML = (FLEET === 'web' ? 'Websites' : 'Mobile apps') + ` <a href="/" class="switch" title="Choose the other fleet">⇄</a>`;
+  document.querySelector('#dash h1').textContent = FLEET === 'web' ? 'Websites dashboard' : 'Mobile dashboard';
+  for (const [id, sel] of [['metric', 'k'], ['platform', 'p'], ['dplatform', 'p']]) {
+    const seg = document.getElementById(id);
+    if (sel === 'k') { for (const b of seg.querySelectorAll('button')) { b.textContent = (data.metrics_short || {})[b.dataset.k] || b.textContent; b.title = (data.metrics || {})[b.dataset.k] || ''; } }
+    else { seg.innerHTML = `<button data-p="all" class="on">${id === 'dplatform' ? 'All platforms' : 'All'}</button>` + PLATFORMS.map(x => `<button data-p="${x}">${x}</button>`).join(''); }
+  }
+  document.querySelector('#tbl thead tr').innerHTML = `<th>${NOUN[0].toUpperCase() + NOUN.slice(1)}</th><th>${(data.metrics_short || {}).u || 'Active'}</th><th>${(data.metrics_short || {}).n || 'First-time'}</th><th>${(data.metrics_short || {}).r || 'Uninstalls'}</th>` + PLATFORMS.map(x => `<th class="hide-m">${x}</th>`).join('');
   const enabled = Object.fromEntries(apps.map(a => [a.id, true]));
   const dates = [...new Set(data.points.map(p => p.d))].sort();
-  const LABEL = { u: 'active users', n: 'first-time users', r: 'uninstalls' };
-  const TITLE = { u: 'Active users', n: 'First-time users', r: 'Uninstalls' };
+  const TITLE = Object.assign({ u: 'Active users', n: 'First-time users', r: 'Uninstalls' }, data.metrics || {});
+  const LABEL = Object.fromEntries(Object.entries(TITLE).map(([k, v]) => [k, v.toLowerCase()]));
   let idx = dates.length - 1, span = 1, metric = 'u', platform = 'all', view = 'globe', period = 30;
   const fmt = s => s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : 'no data';
   const inPlatform = p => platform === 'all' || p.p === platform;
@@ -159,8 +177,8 @@
     appsEl.appendChild(el);
   }
   function toggleApp(id) { enabled[id] = !enabled[id]; render(); }
-  document.getElementById('meta').textContent = 'GA4 · updated ' + updated;
-  document.getElementById('dsub').textContent = 'GA4 active, first-time and uninstalled users per app · updated ' + updated + (data.excluded ? ' · ' + data.excluded : '');
+  document.getElementById('meta').textContent = (data.source || 'GA4') + ' · updated ' + updated;
+  document.getElementById('dsub').textContent = (data.source || 'GA4') + ' · ' + Object.values(TITLE).join(', ').toLowerCase() + ' per ' + NOUN + ' · updated ' + updated + (data.excluded ? ' · ' + data.excluded : '');
 
   // ---- globe
   const globe = Globe()(document.getElementById('globe'))
@@ -195,7 +213,7 @@
   function series() {
     const days = dates.slice(Math.max(0, dates.length - period)), dayset = new Set(days);
     const per = {}, tot = {};
-    for (const a of apps) { per[a.id] = Object.fromEntries(days.map(d => [d, 0])); tot[a.id] = { u: 0, n: 0, r: 0, iOS: 0, Android: 0 }; }
+    for (const a of apps) { per[a.id] = Object.fromEntries(days.map(d => [d, 0])); tot[a.id] = Object.assign({ u: 0, n: 0, r: 0 }, Object.fromEntries(PLATFORMS.map(x => [x, 0]))); }
     for (const p of data.points) {
       if (!dayset.has(p.d) || !inPlatform(p)) continue;
       per[p.a][p.d] += p[metric] || 0;
@@ -235,10 +253,11 @@
     const label = `${fmt(days[0])} → ${fmt(days[days.length - 1])}` + (platform === 'all' ? '' : ' · ' + platform);
     // tiles: one per metric, click selects the metric shown in the chart
     const sum = k => apps.reduce((x, a) => x + (enabled[a.id] ? s.tot[a.id][k] : 0), 0);
-    const split = k => { let i = 0, an = 0; for (const p of data.points) if (new Set(days).has(p.d) && enabled[p.a] && inPlatform(p)) { if (p.p === 'iOS') i += p[k] || 0; else if (p.p === 'Android') an += p[k] || 0; } return { i, an }; };
+    const dayset = new Set(days);
+    const split = k => { const out = Object.fromEntries(PLATFORMS.map(x => [x, 0])); for (const p of data.points) if (dayset.has(p.d) && enabled[p.a] && inPlatform(p) && p.p in out) out[p.p] += p[k] || 0; return out; };
     document.getElementById('tiles').innerHTML = ['u', 'n', 'r'].map(k => {
       const sp = split(k);
-      const s2 = k === 'r' ? `Android ${sp.an} · iOS has no uninstall signal` : `iOS ${sp.i} · Android ${sp.an}`;
+      const s2 = (FLEET === 'mobile' && k === 'r') ? `Android ${sp.Android} · iOS has no uninstall signal` : PLATFORMS.map(x => `${x} ${sp[x]}`).join(' · ');
       return `<div class="tile ${metric === k ? 'on' : ''}" data-k="${k}"><div class="k">${TITLE[k]}</div><div class="v">${sum(k)}</div><div class="s">${s2}</div></div>`;
     }).join('');
     document.querySelectorAll('#tiles .tile').forEach(t => t.addEventListener('click', () => { metric = t.dataset.k; syncSeg('metric', 'k', metric); render(); }));
@@ -256,10 +275,11 @@
     const max = Math.max(1, ...apps.map(a => s.tot[a.id][metric]));
     document.querySelector('#tbl tbody').innerHTML = rows.map(a => { const t = s.tot[a.id]; return `<tr class="${enabled[a.id] ? '' : 'off'}" data-id="${a.id}">
       <td><div class="app"><span class="dot" style="background:${a.color}"></span>${a.name}</div><div class="bar"><i style="width:${(t[metric] / max * 100).toFixed(1)}%;background:${a.color}"></i></div></td>
-      <td>${t.u}</td><td>${t.n}</td><td>${t.r}</td><td class="hide-m">${t.iOS}</td><td class="hide-m">${t.Android}</td></tr>`; }).join('');
+      <td>${t.u}</td><td>${t.n}</td><td>${t.r}</td>${PLATFORMS.map(x => `<td class="hide-m">${t[x]}</td>`).join('')}</tr>`; }).join('');
     document.querySelectorAll('#tbl tbody tr').forEach(r => r.addEventListener('click', () => toggleApp(r.dataset.id)));
-    document.querySelector('#tbl tfoot').innerHTML = `<tr><td>Total (shown apps)</td><td>${sum('u')}</td><td>${sum('n')}</td><td>${sum('r')}</td><td class="hide-m">${split(metric).i}</td><td class="hide-m">${split(metric).an}</td></tr>`;
-    document.getElementById('thint').textContent = `${label} · iOS / Android columns show ${LABEL[metric]} · tap a row to hide an app`;
+    const sp = split(metric);
+    document.querySelector('#tbl tfoot').innerHTML = `<tr><td>Total (shown ${NOUN}s)</td><td>${sum('u')}</td><td>${sum('n')}</td><td>${sum('r')}</td>${PLATFORMS.map(x => `<td class="hide-m">${sp[x]}</td>`).join('')}</tr>`;
+    document.getElementById('thint').textContent = `${label} · ${PLATFORMS.join(' / ')} columns show ${LABEL[metric]} · tap a row to hide a ${NOUN}`;
   }
 
   function render() {
@@ -272,7 +292,7 @@
     for (const a of apps) document.getElementById('n-' + a.id).textContent = enabled[a.id] ? per[a.id] : '–';
     document.getElementById('total').textContent = total;
     document.getElementById('totalLabel').textContent = LABEL[metric];
-    document.getElementById('note').textContent = metric === 'r' ? 'Android only (GA4 app_remove)' : (platform === 'all' ? '' : platform);
+    document.getElementById('note').textContent = (FLEET === 'mobile' && metric === 'r') ? 'Android only (GA4 app_remove)' : (platform === 'all' ? '' : platform);
     const d = dates[idx] || '';
     document.getElementById('date').textContent = span === 1 ? fmt(d) : `${fmt(dates[Math.max(0, idx - span + 1)])} → ${fmt(d)}`;
     document.getElementById('slider').value = idx;
@@ -302,7 +322,7 @@
     if (!p) { tip.style.display = 'none'; return; }
     const name = apps.find(a => a.id === p.a).name;
     tip.innerHTML = `<b style="color:${colour[p.a]}">${name}</b>${p.city ? p.city + ', ' : ''}${p.country}<br>` +
-      `${p.u} active · ${p.n} first-time · ${p.r} uninstall${p.r === 1 ? '' : 's'} · ${[...p.platforms].join(' + ')}`;
+      `${p.u} ${LABEL.u} · ${p.n} ${LABEL.n} · ${p.r} ${LABEL.r} · ${[...p.platforms].join(' + ')}`;
     tip.style.display = 'block'; place();
   }
   render();
