@@ -377,7 +377,7 @@ def post(doc, c):
     if not c.get("GLOBE_URL"):
         return "no GLOBE_URL"
     url = c["GLOBE_URL"].rstrip("/") + "/ingest-journeys"
-    auth = base64.b64encode(f"{c.get('GLOBE_USER', '')}:{c.get('GLOBE_PASS', '')}".encode()).decode()
+    auth = base64.b64encode(f"{c.get('GLOBE_USER', '')}:{c.get('GLOBE_PASSWORD', '')}".encode()).decode()
     body = json.dumps(doc, separators=(",", ":")).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={"Authorization": "Basic " + auth, "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as r:
