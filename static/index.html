@@ -359,7 +359,7 @@
   async function renderJourneys() {
     const data = await loadJ(); const days = Object.keys(data.days || {}).sort().reverse();
     const dsel = document.getElementById('jday');
-    if (dsel.options.length !== days.length) dsel.innerHTML = days.map(d => `<option value="${d}">${fmt(d)}${data.days[d].final ? '' : ' (so far)'}</option>`).join('');
+    if (dsel.options.length !== days.length) dsel.innerHTML = days.map(d => `<option value="${d}">${new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}${data.days[d].final ? '' : ' (so far, UTC)'}</option>`).join('');
     if (!jday || !data.days[jday]) jday = days[0]; dsel.value = jday || '';
     const ssel = document.getElementById('jsite');
     if (ssel.options.length < 2) ssel.innerHTML = '<option value="all">All sites</option>' + Object.entries(data.sites || {}).map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('');
