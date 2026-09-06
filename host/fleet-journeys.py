@@ -404,6 +404,8 @@ def main():
         by_day[row[0]].append(row)
     docs = {}
     for day in days:
+        if not by_day.get(day) and "--day" not in args:
+            continue  # the log rotation keeps about two days; a day with no lines is unknown, not empty
         doc = {"day": day, "final": day != today.isoformat(), "sites": build_day(day, by_day.get(day, []), reader, nets, asn),
                "inapp": {"inventoria": inventoria_inapp(day)}}
         docs[day] = doc
@@ -413,6 +415,9 @@ def main():
     if "--text" in args:
         print(text_summary(days[0], docs[days[0]]))
         return 0
+    if not docs:
+        print("no log lines for the last", DAYS, "days", file=sys.stderr)
+        return 1
     # all days on disk (older ones kept as they were), newest first
     alldays = {}
     for fn in sorted(glob.glob(os.path.join(OUT, "*.json")))[-30:]:
