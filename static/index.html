@@ -86,6 +86,27 @@
     th, td { padding:8px 6px; font-size:12.5px; }
     .hide-m { display:none; }
   }
+  /* Journeys view (web fleet): what humans did, session by session */
+  body.journeys { background:var(--dbg); overflow:auto; touch-action:auto; }
+  body.journeys #globe, body.journeys #legend, body.journeys #controls, body.journeys #meta, body.journeys #view, body.journeys #tip { display:none; }
+  #journeys { display:none; max-width:1180px; margin:0 auto; padding:calc(18px + env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom)); }
+  body.journeys #journeys { display:block; }
+  #journeys header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+  #journeys h1 { font-size:20px; margin:0; font-weight:650; letter-spacing:-.2px; }
+  #journeys .sub { color:var(--muted); font-size:12.5px; }
+  #journeys .spacer { flex:1 1 auto; }
+  #journeys .seg { border-color:var(--card-line); background:var(--card); }
+  #journeys .seg button.on { background:rgba(124,156,255,.16); color:var(--fg); }
+  #journeys .filters { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .jsel { background:var(--card); color:var(--fg); border:1px solid var(--card-line); border-radius:10px; padding:9px 12px; min-height:38px; font:inherit; }
+  .jsel[type=search] { flex:1 1 220px; }
+  #journeys th, #journeys td { text-align:left; vertical-align:top; }
+  #journeys .s { color:var(--muted); font-size:12px; }
+  .j-path { font-size:12.5px; word-break:break-word; }
+  .j-path i { color:var(--muted); font-style:normal; margin:0 5px; }
+  .j-badge { display:inline-block; font-size:11px; padding:2px 7px; border-radius:999px; background:rgba(124,156,255,.16); margin:0 4px 3px 0; white-space:nowrap; }
+  .j-badge.hot { background:rgba(255,140,80,.22); }
+  @media (max-width:640px) { #journeys { padding-left:12px; padding-right:12px; } }
 </style>
 </head>
 <body>
@@ -137,6 +158,22 @@
     <h2>Per app</h2><div class="hint" id="thint"></div>
     <div style="overflow-x:auto"><table id="tbl"><thead><tr><th>App</th><th>Active</th><th>First-time</th><th>Uninstalls</th><th class="hide-m">iOS</th><th class="hide-m">Android</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div>
   </div>
+</section>
+
+<section id="journeys">
+  <header>
+    <div><h1>Journeys</h1><div class="sub" id="jsub"></div></div>
+    <a href="/" class="seg" style="padding:8px 12px;color:var(--muted);text-decoration:none">⇄ Other fleet</a>
+    <div class="spacer"></div>
+    <div class="seg" id="jview"><button data-v="globe">Globe</button><button data-v="dash">Dashboard</button><button data-v="journeys" class="on">Journeys</button></div>
+  </header>
+  <div class="filters">
+    <select id="jday" class="jsel" aria-label="Day"></select>
+    <select id="jsite" class="jsel" aria-label="Site"><option value="all">All sites</option></select>
+    <input id="jq" type="search" class="jsel" placeholder="Filter: country, path, source, event, network">
+  </div>
+  <div class="tiles" id="jtiles"></div>
+  <div id="jcards"></div>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.35.0/dist/globe.gl.min.js"></script>
@@ -284,7 +321,9 @@
 
   function render() {
     document.body.classList.toggle('dash', view === 'dash');
+    document.body.classList.toggle('journeys', view === 'journeys');
     document.querySelectorAll('#legend .app').forEach(el => el.classList.toggle('off', !enabled[el.dataset.id]));
+    if (view === 'journeys') { renderJourneys(); return; }
     if (view === 'dash') { renderDash(); return; }
     const pts = selectedPoints(); globe.pointsData(pts);
     const per = Object.fromEntries(apps.map(a => [a.id, 0])); let total = 0;
@@ -305,13 +344,66 @@
     const btns = [...document.querySelectorAll('#' + id + ' button')];
     for (const b of btns) b.addEventListener('click', e => { e.preventDefault(); apply(b.dataset[attr]); btns.forEach(x => x.classList.toggle('on', x === b)); render(); });
   }
+  // ---- journeys (web fleet only): what humans did, session by session (journeys-web.json, posted by
+  // fleet-journeys.py on the box every hour). Taoufik 06/09: "know anything that users do in our website fleets".
+  let J = null, jday = null, jsite = 'all', jq = '';
+  if (FLEET === 'web') for (const id of ['view', 'dview']) { const b = document.createElement('button'); b.dataset.v = 'journeys'; b.textContent = 'Journeys'; document.getElementById(id).appendChild(b); }
+  async function loadJ() { if (J) return J; try { J = await (await fetch('/journeys-web.json?ts=' + Date.now())).json(); } catch (e) { J = { days: {}, sites: {} }; } return J; }
+  document.getElementById('jday').addEventListener('change', e => { jday = e.target.value; renderJourneys(); });
+  document.getElementById('jsite').addEventListener('change', e => { jsite = e.target.value; renderJourneys(); });
+  document.getElementById('jq').addEventListener('input', e => { jq = e.target.value.toLowerCase(); renderJourneys(); });
+  const esc = x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const HOT = new Set(['signup', 'checkout', 'demo', 'pricing', 'in-app', 'tool-used', 'login', 'product', 'download', 'contact']);
+  async function renderJourneys() {
+    const data = await loadJ(); const days = Object.keys(data.days || {}).sort().reverse();
+    const dsel = document.getElementById('jday');
+    if (dsel.options.length !== days.length) dsel.innerHTML = days.map(d => `<option value="${d}">${fmt(d)}${data.days[d].final ? '' : ' (so far)'}</option>`).join('');
+    if (!jday || !data.days[jday]) jday = days[0]; dsel.value = jday || '';
+    const ssel = document.getElementById('jsite');
+    if (ssel.options.length < 2) ssel.innerHTML = '<option value="all">All sites</option>' + Object.entries(data.sites || {}).map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('');
+    const day = (data.days || {})[jday] || { sites: {}, inapp: {} };
+    document.getElementById('jsub').textContent = `Human sessions per site: page and asset loaded; own IPs, bots, hosting networks and crawl patterns removed. Updated ${data.generated || 'never'}.`;
+    const rows = []; let crawlers = 0;
+    for (const [sid, v] of Object.entries(day.sites || {})) { if (jsite !== 'all' && sid !== jsite) continue; crawlers += v.crawlers || 0; for (const h of v.human || []) rows.push({ sid, ...h }); }
+    const match = h => !jq || [h.country, h.city, h.source, h.os, h.device, h.lang, h.asn, ...(h.events || []), ...(h.pages || [])].join(' ').toLowerCase().includes(jq);
+    const shown = rows.filter(match);
+    const ev = {}; for (const h of shown) for (const e of h.events || []) ev[e] = (ev[e] || 0) + 1;
+    const sites = new Set(shown.map(h => h.sid));
+    const tile = (k, v, s) => `<div class="tile" style="cursor:default"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    document.getElementById('jtiles').innerHTML = tile('Human sessions', shown.length, `${sites.size} site${sites.size === 1 ? '' : 's'} visited`) +
+      tile('Crawlers removed', crawlers, `${(100 * crawlers / Math.max(1, crawlers + rows.length)).toFixed(0)}% of sessions with a browser agent`) +
+      tile('Events', Object.values(ev).reduce((a, b) => a + b, 0), Object.entries(ev).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k} ${n}`).join(' · ') || 'none');
+    const bySite = {}; for (const h of shown) (bySite[h.sid] = bySite[h.sid] || []).push(h);
+    let html = '';
+    for (const [sid, hs] of Object.entries(bySite).sort((a, b) => b[1].length - a[1].length)) {
+      const c = {}; for (const h of hs) c[h.country || '?'] = (c[h.country || '?'] || 0) + 1;
+      const col = (apps.find(a => a.id === sid) || {}).color || 'var(--accent)';
+      html += `<div class="card"><h2><span class="dot" style="background:${col};margin-right:8px;vertical-align:-1px"></span>${esc((data.sites || {})[sid] || sid)} <span style="color:var(--muted);font-weight:400">· ${hs.length} session${hs.length === 1 ? '' : 's'} · ${Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => `${k} ${n}`).join(', ')}</span></h2>
+        <div style="overflow-x:auto"><table><thead><tr><th>When</th><th>Who</th><th>From</th><th>Journey</th><th>Events</th></tr></thead><tbody>` +
+        hs.map(h => `<tr><td>${h.t}<div class="s">${h.dur >= 60 ? Math.round(h.dur / 60) + ' min' : h.dur + ' s'}</div></td>
+          <td>${esc(h.country)} ${esc(h.city)}<div class="s">${h.device}/${h.os}${h.lang ? ' · ' + esc(h.lang) : ''}</div>${h.asn ? `<div class="s">${esc(h.asn)}</div>` : ''}</td>
+          <td>${h.source ? esc(h.source) : '<span class="s">direct or none</span>'}</td>
+          <td class="j-path">${(h.pages || []).map(esc).join('<i>›</i>')}${h.n > (h.pages || []).length ? ` <span class="s">+${h.n - h.pages.length}</span>` : ''}${h.api ? ` <span class="s">· ${h.api} API</span>` : ''}${Object.keys(h.errors || {}).length ? ` <span class="j-badge hot">${Object.entries(h.errors).map(([k, n]) => k + '×' + n).join(' ')}</span>` : ''}</td>
+          <td>${(h.events || []).map(e => `<span class="j-badge${HOT.has(e) ? ' hot' : ''}">${esc(e)}</span>`).join('')}</td></tr>`).join('') + '</tbody></table></div></div>';
+    }
+    const ia = (day.inapp || {}).inventoria;
+    if (ia && (jsite === 'all' || jsite === 'inventoria')) {
+      const nu = ia.new_users || [], act = ia.activity || [];
+      html += `<div class="card"><h2>InventorIA, inside the app</h2><div class="hint">Signups and workspace activity from the database (e2e and demo tenants excluded)</div>
+        <div>${nu.length} signup${nu.length === 1 ? '' : 's'}${nu.length ? ': ' + nu.map(u => `${u.t} ${esc(u.email)}${u.use_case ? ' (' + esc(u.use_case) + ')' : ''}`).join(', ') : ''}</div>
+        <div>${act.length} active workspace${act.length === 1 ? '' : 's'}${act.length ? ': ' + act.map(a => `${esc(a.company)} ${a.events} action${a.events === 1 ? '' : 's'} ${a.first} to ${a.last} (${esc(a.actions)})`).join('; ') : ''}</div>${ia.error ? `<div class="s">${esc(ia.error)}</div>` : ''}</div>`;
+    }
+    if (!shown.length) html = '<div class="card"><div class="hint">No human session for this selection.</div></div>' + html;
+    document.getElementById('jcards').innerHTML = html;
+  }
+  segment('jview', 'v', v => { view = v; syncSeg('view', 'v', v); syncSeg('dview', 'v', v); });
   segment('range', 'm', v => { span = +v; });
   segment('period', 'd', v => { period = +v; });
   segment('metric', 'k', v => { metric = v; });
   segment('platform', 'p', v => { platform = v; syncSeg('dplatform', 'p', v); });
   segment('dplatform', 'p', v => { platform = v; syncSeg('platform', 'p', v); });
-  segment('view', 'v', v => { view = v; syncSeg('dview', 'v', v); });
-  segment('dview', 'v', v => { view = v; syncSeg('view', 'v', v); });
+  segment('view', 'v', v => { view = v; syncSeg('dview', 'v', v); syncSeg('jview', 'v', v); });
+  segment('dview', 'v', v => { view = v; syncSeg('view', 'v', v); syncSeg('jview', 'v', v); });
 
   // ---- globe tooltip
   const tip = document.getElementById('tip'); let mouse = { x: 0, y: 0 };

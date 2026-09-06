@@ -37,23 +37,38 @@ class Handler(SimpleHTTPRequestHandler):
             self.path = "/index.html"           # same page, the script reads the fleet from the URL
         elif path == "/data.json":
             self.path = "/data.json"
-        elif path == "/data-web.json":
-            self.path = "/data-web.json"
+        elif path in ("/data-web.json", "/journeys-web.json"):
+            self.path = path
         super().do_GET()
 
     def do_POST(self):
-        """/ingest: the box's globe-web.py posts the websites dataset (basic auth, JSON body)."""
+        """/ingest: the box's globe-web.py posts the websites dataset; /ingest-journeys: fleet-journeys.py
+        posts the human sessions (both basic auth, JSON body)."""
         if self.headers.get("Authorization") != EXPECTED:
             self.send_response(401); self.send_header("Content-Length", "0"); self.end_headers(); return
-        if self.path.split("?")[0] != "/ingest":
+        route = self.path.split("?")[0]
+        if route not in ("/ingest", "/ingest-journeys"):
             self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers(); return
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n)
         try:
             doc = json.loads(body)
-            assert isinstance(doc.get("points"), list) and isinstance(doc.get("apps"), list)
+            if route == "/ingest":
+                assert isinstance(doc.get("points"), list) and isinstance(doc.get("apps"), list)
+            else:  # /ingest-journeys: fleet-journeys.py on the box, human sessions per site per day
+                assert isinstance(doc.get("days"), dict) and isinstance(doc.get("sites"), dict)
         except Exception as e:
             self.send_response(400); self.send_header("Content-Length", "0"); self.end_headers(); return
+        if route == "/ingest-journeys":
+            target = os.path.join(STATIC, "journeys-web.json")
+            tmp = target + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(body)
+            os.replace(tmp, target)
+            out = b"ok %d days" % len(doc["days"])
+            self.send_response(200); self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+            return
         target = os.path.join(STATIC, "data-web.json")
         tmp = target + ".tmp"
         with open(tmp, "wb") as f:
@@ -64,7 +79,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
 
     def end_headers(self):
-        if self.path.startswith("/data.json") or self.path.startswith("/data-web.json"):
+        if self.path.startswith(("/data.json", "/data-web.json", "/journeys-web.json")):
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
