@@ -9,6 +9,10 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
+# Posted datasets (data-web.json, journeys-web.json) live in /data when a volume is mounted there
+# (Coolify custom docker run option "-v globe-data:/data"): a redeploy used to wipe them (06/09).
+DATA_DIR = "/data" if os.path.isdir("/data") and os.access("/data", os.W_OK) else STATIC
+POSTED = ("data-web.json", "journeys-web.json")
 USER = os.environ.get("GLOBE_USER", "taoufik")
 PASSWORD = os.environ.get("GLOBE_PASSWORD")
 if not PASSWORD:
@@ -19,6 +23,12 @@ EXPECTED = "Basic " + base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=STATIC, **kw)
+
+    def translate_path(self, path):
+        name = path.split("?")[0].lstrip("/")
+        if name in POSTED:
+            return os.path.join(DATA_DIR, name)
+        return super().translate_path(path)
 
     def do_GET(self):
         if self.path == "/healthz":
@@ -60,7 +70,7 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_response(400); self.send_header("Content-Length", "0"); self.end_headers(); return
         if route == "/ingest-journeys":
-            target = os.path.join(STATIC, "journeys-web.json")
+            target = os.path.join(DATA_DIR, "journeys-web.json")
             tmp = target + ".tmp"
             with open(tmp, "wb") as f:
                 f.write(body)
@@ -69,7 +79,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
             return
-        target = os.path.join(STATIC, "data-web.json")
+        target = os.path.join(DATA_DIR, "data-web.json")
         tmp = target + ".tmp"
         with open(tmp, "wb") as f:
             f.write(body)
@@ -101,5 +111,5 @@ if __name__ == "__main__":
     os.makedirs(STATIC, exist_ok=True)
     threading.Thread(target=refresher, daemon=True).start()
     port = int(os.environ.get("PORT", "8080"))
-    print(f"serving {STATIC} on :{port}", file=sys.stderr)
+    print(f"serving {STATIC} on :{port}, posted datasets in {DATA_DIR}", file=sys.stderr)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

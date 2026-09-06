@@ -205,7 +205,7 @@
   let idx = dates.length - 1, span = 1, metric = 'u', platform = 'all', view = 'globe', period = 30;
   const fmt = s => s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : 'no data';
   const inPlatform = p => platform === 'all' || p.p === platform;
-  const updated = data.generated.replace('T', ' ').slice(0, 16) + ' UTC';
+  const updated = data.generated ? data.generated.replace('T', ' ').slice(0, 16) + ' UTC' : 'no data yet';
 
   // ---- globe legend
   const appsEl = document.getElementById('apps');
