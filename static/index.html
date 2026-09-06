@@ -183,7 +183,9 @@
   // One page, two fleets: /mobile reads data.json (GA4 apps), /web reads data-web.json (Traefik
   // access logs of the websites). The data file carries its own labels: metrics, platforms, source.
   const FLEET = location.pathname.startsWith('/web') ? 'web' : 'mobile';
-  const data = await (await fetch((FLEET === 'web' ? '/data-web.json' : '/data.json') + '?ts=' + Date.now())).json();
+  let data;
+  try { data = await (await fetch((FLEET === 'web' ? '/data-web.json' : '/data.json') + '?ts=' + Date.now())).json(); }
+  catch (e) { data = { points: [], apps: [], dates: [], note: 'data file missing: the hourly collector has not posted since the last deploy' }; }  // a redeploy wipes the posted file until the next :07 run
   const apps = data.apps, colour = Object.fromEntries(apps.map(a => [a.id, a.color]));
   const PLATFORMS = data.platforms || ['iOS', 'Android'];
   const NOUN = data.noun || 'app';
