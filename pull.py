@@ -89,11 +89,14 @@ DIMS = [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "
 # app that was never on the App Store): iOS Simulator runs report deviceModel "arm64", and Apple's
 # App Review devices sit in the towns around Cupertino. Both are dropped before anything is counted.
 SIMULATOR_MODELS = {"arm64", "x86_64", "iPhone99,7"}
+# Android emulators (our NRT runs on release builds) report deviceModel "sdk_gphone64_arm64",
+# "sdk_gphone_arm64", "Android SDK built for x86", "emulator64_arm64"... (measured 08/09/2026).
+EMULATOR_PREFIXES = ("sdk_gphone", "sdk_phone", "Android SDK built for", "emulator", "generic_x86", "AOSP on")
 APPLE_REVIEW_CITIES = {"Cupertino", "Saratoga", "San Jose", "Santa Clara", "Sunnyvale", "Los Gatos", "Campbell"}
 
 
 def is_test_traffic(platform, city, model):
-    if model in SIMULATOR_MODELS:
+    if model in SIMULATOR_MODELS or model.startswith(EMULATOR_PREFIXES):
         return True
     return platform == "iOS" and city in APPLE_REVIEW_CITIES
 
@@ -161,7 +164,7 @@ def main():
     data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "days": DAYS,
             "apps": [{"id": a, "name": n, "color": c} for a, n, _, c in APPS],
             "metrics": {"u": "Active users", "n": "First-time users", "r": "Uninstalls (Android only)"},
-            "excluded": "iOS Simulator runs and Apple App Review devices (Cupertino area) are not counted",
+            "excluded": "iOS Simulator runs, Android emulators and Apple App Review devices (Cupertino area) are not counted",
             "rows_per_app": status, "points": points}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
