@@ -54,7 +54,7 @@ SITES = [
     ("taoufikjabbari.dev", "taoufik", "taoufikjabbari.dev"),
 ]
 BOT_RE = re.compile(r"bot|crawl|spider|slurp|bingpreview|facebookexternalhit|headless|lighthouse|monitor|uptime|curl|wget|python|go-http|java/|okhttp|scan|checker|validator|semrush|ahrefs|mj12|google-inspectiontool|storebot-google|playwright|chrome-lighthouse|node-fetch|axios|libwww", re.I)
-SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|phpmyadmin|admin\.php|vendor/|cgi-bin/|owa/|autodiscover|console/|server-status|_catalog|cpanel|whm)|\.php(\?|$)", re.I)
+SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|\.aws|\.ssh|\.docker|phpmyadmin|admin\.php|vendor/|cgi-bin/|owa/|autodiscover|console/|server-status|_catalog|cpanel|whm|actuator|\.well-known/traffic-advice)|credentials|config\.(json|yml|yaml)|%22|\.php(\?|$)|\.(bak|sql|tar|gz|zip)$", re.I)
 ASSET_RE = re.compile(r"\.(js|mjs|css|png|jpe?g|webp|avif|gif|svg|ico|woff2?|ttf|map|xml|txt|json|webmanifest)(\?|$)|^/_next/|^/static/|^/(icon|apple-icon|favicon|opengraph-image|twitter-image|manifest)\b", re.I)
 API_RE = re.compile(r"^/(backend/|api/)")
 LOCALE_RE = re.compile(r"^/(en|fr|es|de|pt|zh|it|ja|ru|ar|nl|ko|hi|tr|pl)(/|$)")
