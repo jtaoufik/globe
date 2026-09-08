@@ -54,7 +54,7 @@ SITES = [
     ("taoufikjabbari.dev", "taoufik", "taoufikjabbari.dev"),
 ]
 BOT_RE = re.compile(r"bot|crawl|spider|slurp|bingpreview|facebookexternalhit|headless|lighthouse|monitor|uptime|curl|wget|python|go-http|java/|okhttp|scan|checker|validator|semrush|ahrefs|mj12|google-inspectiontool|storebot-google|playwright|chrome-lighthouse|node-fetch|axios|libwww", re.I)
-SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|\.aws|\.ssh|\.docker|phpmyadmin|admin\.php|vendor/|cgi-bin/|owa/|autodiscover|console/|server-status|_catalog|cpanel|whm|actuator|\.well-known/traffic-advice)|credentials|config\.(json|yml|yaml)|%22|\.php(\?|$)|\.(bak|sql|tar|gz|zip)$", re.I)
+SCAN_RE = re.compile(r"/(wp-|wordpress|xmlrpc\.php|\.env|\.git|\.aws|\.ssh|\.docker|phpmyadmin|admin\.php|administrator|backoffice|vendor/|cgi-bin/|owa/|autodiscover|console/?$|server-status|_catalog|cpanel|whm|actuator|\.well-known/traffic-advice|com_jce|internal/?$|secure/?$)|credentials|config\.(json|yml|yaml)|%22|\.php(\?|$)|\.(bak|sql|tar|gz|zip)$", re.I)
 ASSET_RE = re.compile(r"\.(js|mjs|css|png|jpe?g|webp|avif|gif|svg|ico|woff2?|ttf|map|xml|txt|json|webmanifest)(\?|$)|^/_next/|^/static/|^/(icon|apple-icon|favicon|opengraph-image|twitter-image|manifest)\b", re.I)
 API_RE = re.compile(r"^/(backend/|api/)")
 LOCALE_RE = re.compile(r"^/(en|fr|es|de|pt|zh|it|ja|ru|ar|nl|ko|hi|tr|pl)(/|$)")
@@ -221,6 +221,9 @@ def classify(s):
         # Private Relay puts real Safari users behind Cloudflare/Akamai/Fastly addresses.
         if not (PRIVATE_RELAY_RE.search(s.get("asn_name", "")) and re.search(r"iPhone|iPad|Macintosh", s["ua"]) and "Safari" in s["ua"] and "Chrome" not in s["ua"]):
             return "crawler"
+    # a "visit" made only of 404 pages (guessing /account, /admin, /internal...) is a probe, not a reader
+    if len(pages) >= 2 and all(st == 404 for _, _, st in pages):
+        return "crawler"
     dur = (dt.datetime.fromisoformat(s["last"]) - dt.datetime.fromisoformat(s["first"])).total_seconds()
     if len(pages) >= 2 * len(distinct) and len(pages) >= 4 and dur < 20:
         return "crawler"  # the same one or two pages requested again and again inside seconds
