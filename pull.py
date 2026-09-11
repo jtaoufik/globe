@@ -93,12 +93,38 @@ SIMULATOR_MODELS = {"arm64", "x86_64", "iPhone99,7"}
 # "sdk_gphone_arm64", "Android SDK built for x86", "emulator64_arm64"... (measured 08/09/2026).
 EMULATOR_PREFIXES = ("sdk_gphone", "sdk_phone", "Android SDK built for", "emulator", "generic_x86", "AOSP on")
 APPLE_REVIEW_CITIES = {"Cupertino", "Saratoga", "San Jose", "Santa Clara", "Sunnyvale", "Los Gatos", "Campbell"}
+# The apps set an `env` user property since 11/09/2026: "store" on a real App Store / Play install
+# on a physical device, "tester" on everything else (simulator, emulator, TestFlight, debug build).
+# Anything that is not "store" is one of our own runs. The property only reaches the Data API once it
+# is registered as a user-scoped custom dimension in GA4 (customUser:env); until then callers pass
+# nothing here and the model / city rule below does the work on its own.
+ENV_REAL_USER = "store"
+
+# Money is NEVER read from GA4. The App Store Connect link imports SANDBOX purchases as real revenue:
+# measured on StayFit 11/09/2026, 7 app_store_subscription_renew events carried 587.93 of "revenue"
+# while Apple's own sales report showed 0.00 developer proceeds since the 07/09 launch. Any future
+# revenue metric added to this file must drop these event names first, and the only number we are
+# allowed to call earnings is the "Developer Proceeds" column of the ASC SALES report.
+SANDBOX_IMPORTED_EVENTS = {"app_store_subscription_renew", "app_store_subscription_convert",
+                           "app_store_refund", "in_app_purchase"}
 
 
-def is_test_traffic(platform, city, model):
+def is_test_traffic(platform, city, model, env=""):
+    """True when the row is one of our own runs rather than a real user.
+
+    `env` is the app's own user property when the caller has it (GA4 customUser:env): an empty
+    string means "not measured", and the device / city rule decides alone.
+    """
+    if env and env != ENV_REAL_USER:
+        return True
     if model in SIMULATOR_MODELS or model.startswith(EMULATOR_PREFIXES):
         return True
     return platform == "iOS" and city in APPLE_REVIEW_CITIES
+
+
+def is_sandbox_revenue_event(event_name):
+    """True for the App Store Connect imported purchase events, which are sandbox money."""
+    return event_name in SANDBOX_IMPORTED_EVENTS
 
 
 def run_report(token, prop, start, end):
@@ -164,7 +190,8 @@ def main():
     data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "days": DAYS,
             "apps": [{"id": a, "name": n, "color": c} for a, n, _, c in APPS],
             "metrics": {"u": "Active users", "n": "First-time users", "r": "Uninstalls (Android only)"},
-            "excluded": "iOS Simulator runs, Android emulators and Apple App Review devices (Cupertino area) are not counted",
+            "excluded": "iOS Simulator runs, Android emulators and Apple App Review devices (Cupertino area) are not counted; "
+                        "no revenue is read from GA4 (the App Store Connect link imports sandbox purchases as real money)",
             "rows_per_app": status, "points": points}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
