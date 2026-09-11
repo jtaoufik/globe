@@ -74,14 +74,10 @@ def load_cities():
     return best, centroids
 
 
-# GA4 revenue is NOT ours to read, and the device/city rule below cannot rescue it.
-# `app_store_subscription_renew`, `app_store_subscription_convert` and `in_app_purchase` are
-# imported server-side by Firebase from the App Store Connect link, they include SANDBOX
-# transactions, and no client flag can stop them. Measured 11/09/2026 on StayFit: 28 renewals
-# worth 2635.70 of "revenue" in GA4 against 0.00 developer proceeds in Apple's sales reports,
-# and the rows carry a real deviceModel (iPhone17,3 / Paris - the TestFlight device that made the
-# sandbox purchase), so they survive every exclusion in this file. Earnings come from the ASC
-# sales report, never from GA4 or the Firebase console.
+# The rule below (SANDBOX_IMPORTED_EVENTS) is unenforceable by comment alone, so it is a guard:
+# no caller may ask the Data API for money. The device / city exclusion cannot rescue these rows
+# either - measured 11/09/2026, StayFit's sandbox renewals carry deviceModel "iPhone17,3" in Paris
+# (the TestFlight phone that made the purchase), not "arm64".
 FORBIDDEN_METRICS = {"totalRevenue", "purchaseRevenue", "itemRevenue", "grossItemRevenue",
                      "averagePurchaseRevenue", "averagePurchaseRevenuePerUser",
                      "averageRevenuePerUser", "adRevenue", "grossPurchaseRevenue",
@@ -112,11 +108,12 @@ SIMULATOR_MODELS = {"arm64", "x86_64", "iPhone99,7"}
 # "sdk_gphone_arm64", "Android SDK built for x86", "emulator64_arm64"... (measured 08/09/2026).
 EMULATOR_PREFIXES = ("sdk_gphone", "sdk_phone", "Android SDK built for", "emulator", "generic_x86", "AOSP on")
 APPLE_REVIEW_CITIES = {"Cupertino", "Saratoga", "San Jose", "Santa Clara", "Sunnyvale", "Los Gatos", "Campbell"}
-# The apps set an `env` user property since 11/09/2026: "store" on a real App Store / Play install
-# on a physical device, "tester" on everything else (simulator, emulator, TestFlight, debug build).
-# Anything that is not "store" is one of our own runs. The property only reaches the Data API once it
-# is registered as a user-scoped custom dimension in GA4 (customUser:env); until then callers pass
-# nothing here and the model / city rule below does the work on its own.
+# The apps set an `env` user property since 11/09/2026. Measured values, iOS: "store" (a real App
+# Store install on a physical device - the ONLY one that collects at all now), "testflight",
+# "debug", "simulator", "store-forced" (a --qa-store gate run) and "tester-forced". Android:
+# "emulator", "debug", "android-unpublished". Anything that is not "store" is one of our own runs.
+# The property only reaches the Data API once it is registered as a user-scoped custom dimension in
+# GA4 (customUser:env); until then callers pass nothing here and the model / city rule does the work.
 ENV_REAL_USER = "store"
 # GA4 answers "(not set)" for every row collected before the property shipped, and for any install
 # that never sent it. That is "unknown", NOT "tester": treating it as test traffic would delete every
