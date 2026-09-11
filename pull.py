@@ -74,7 +74,26 @@ def load_cities():
     return best, centroids
 
 
+# GA4 revenue is NOT ours to read, and the device/city rule below cannot rescue it.
+# `app_store_subscription_renew`, `app_store_subscription_convert` and `in_app_purchase` are
+# imported server-side by Firebase from the App Store Connect link, they include SANDBOX
+# transactions, and no client flag can stop them. Measured 11/09/2026 on StayFit: 28 renewals
+# worth 2635.70 of "revenue" in GA4 against 0.00 developer proceeds in Apple's sales reports,
+# and the rows carry a real deviceModel (iPhone17,3 / Paris - the TestFlight device that made the
+# sandbox purchase), so they survive every exclusion in this file. Earnings come from the ASC
+# sales report, never from GA4 or the Firebase console.
+FORBIDDEN_METRICS = {"totalRevenue", "purchaseRevenue", "itemRevenue", "grossItemRevenue",
+                     "averagePurchaseRevenue", "averagePurchaseRevenuePerUser",
+                     "averageRevenuePerUser", "adRevenue", "grossPurchaseRevenue",
+                     "totalPurchasers", "transactions"}
+
+
 def _report(token, prop, body):
+    bad = FORBIDDEN_METRICS & {m["name"] for m in body.get("metrics", [])}
+    if bad:
+        raise ValueError(f"GA4 revenue metric(s) {sorted(bad)} requested: GA4 revenue on these "
+                         f"properties includes App Store SANDBOX renewals imported from ASC and "
+                         f"is not earnings. Read the ASC sales report instead.")
     r = requests.post(f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport",
                       headers={"Authorization": f"Bearer {token}"}, json=body, timeout=60)
     if r.status_code != 200:
@@ -99,6 +118,10 @@ APPLE_REVIEW_CITIES = {"Cupertino", "Saratoga", "San Jose", "Santa Clara", "Sunn
 # is registered as a user-scoped custom dimension in GA4 (customUser:env); until then callers pass
 # nothing here and the model / city rule below does the work on its own.
 ENV_REAL_USER = "store"
+# GA4 answers "(not set)" for every row collected before the property shipped, and for any install
+# that never sent it. That is "unknown", NOT "tester": treating it as test traffic would delete every
+# real user we have. Only an explicit value that is not "store" is one of ours.
+ENV_UNKNOWN = {"", "(not set)", "(not_set)", "(none)"}
 
 # Money is NEVER read from GA4. The App Store Connect link imports SANDBOX purchases as real revenue:
 # measured on StayFit 11/09/2026, 7 app_store_subscription_renew events carried 587.93 of "revenue"
@@ -115,7 +138,7 @@ def is_test_traffic(platform, city, model, env=""):
     `env` is the app's own user property when the caller has it (GA4 customUser:env): an empty
     string means "not measured", and the device / city rule decides alone.
     """
-    if env and env != ENV_REAL_USER:
+    if env not in ENV_UNKNOWN and env != ENV_REAL_USER:
         return True
     if model in SIMULATOR_MODELS or model.startswith(EMULATOR_PREFIXES):
         return True
