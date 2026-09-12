@@ -98,7 +98,8 @@ def _report(token, prop, body):
     return r.json().get("rows", [])
 
 
-DIMS = [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "city"}, {"name": "platform"}, {"name": "deviceModel"}]
+DIMS = [{"name": "date"}, {"name": "countryId"}, {"name": "country"}, {"name": "city"}, {"name": "platform"},
+        {"name": "deviceModel"}, {"name": "operatingSystemVersion"}]
 
 # Test traffic that GA4 counts as real users (measured on StayFit, 02/09/2026: 137 "new users" for an
 # app that was never on the App Store): iOS Simulator runs report deviceModel "arm64", and Apple's
@@ -108,6 +109,15 @@ SIMULATOR_MODELS = {"arm64", "x86_64", "iPhone99,7"}
 # "sdk_gphone_arm64", "Android SDK built for x86", "emulator64_arm64"... (measured 08/09/2026).
 EMULATOR_PREFIXES = ("sdk_gphone", "sdk_phone", "Android SDK built for", "emulator", "generic_x86", "AOSP on")
 APPLE_REVIEW_CITIES = {"Cupertino", "Saratoga", "San Jose", "Santa Clara", "Sunnyvale", "Los Gatos", "Campbell"}
+# Google Play's crawler (measured 12/09/2026 on every Android property, 7 to 15 "new users" per app
+# in a week): deviceModel "OnePlus8Pro" on Android 11 with country "(not set)", the same device that
+# produced the addViewInner crashes. It is not a user. Two rules, both counted and printed:
+# the model + OS version pair (whatever the country: the same farm also geolocates to Brazil,
+# Portugal, Indonesia, Ukraine) and any Android row with no country at all.
+CRAWLER_DEVICES = {("OnePlus8Pro", "11")}          # (deviceModel, operatingSystemVersion)
+# GA4 spells a missing country "(not set)"; an EMPTY string is a caller that did not query the
+# country at all (unknown, not crawler), so it is deliberately absent here.
+CRAWLER_COUNTRIES = {"(not set)", "(not_set)"}
 # The apps set an `env` user property since 11/09/2026. Measured values, iOS: "store" (a real App
 # Store install on a physical device - the ONLY one that collects at all now), "testflight",
 # "debug", "simulator", "store-forced" (a --qa-store gate run) and "tester-forced". Android:
@@ -129,15 +139,38 @@ SANDBOX_IMPORTED_EVENTS = {"app_store_subscription_renew", "app_store_subscripti
                            "app_store_refund", "in_app_purchase"}
 
 
-def is_test_traffic(platform, city, model, env=""):
-    """True when the row is one of our own runs rather than a real user.
+def _os_number(os_version):
+    """GA4 answers operatingSystemVersion as "11" and operatingSystemWithVersion as "Android 11"."""
+    v = (os_version or "").strip()
+    for prefix in ("Android ", "iOS "):
+        if v.startswith(prefix):
+            v = v[len(prefix):]
+    return v
+
+
+def is_crawler_traffic(platform, model, os_version="", country=""):
+    """True for Google Play's crawler: the OnePlus8Pro / Android 11 farm, or an Android row that
+    carries no country. Only Android: an iOS row never comes from Play."""
+    if platform != "Android":
+        return False
+    if os_version and (model, _os_number(os_version)) in CRAWLER_DEVICES:
+        return True
+    return (country or "").strip() in CRAWLER_COUNTRIES
+
+
+def is_test_traffic(platform, city, model, env="", os_version="", country=""):
+    """True when the row is one of our own runs (or a store crawler) rather than a real user.
 
     `env` is the app's own user property when the caller has it (GA4 customUser:env): an empty
-    string means "not measured", and the device / city rule decides alone.
+    string means "not measured", and the device / city rule decides alone. `os_version` and
+    `country` feed the Play-crawler rule (is_crawler_traffic); callers that do not query them pass
+    nothing and only the emulator / simulator / Apple-review rules apply.
     """
     if env not in ENV_UNKNOWN and env != ENV_REAL_USER:
         return True
     if model in SIMULATOR_MODELS or model.startswith(EMULATOR_PREFIXES):
+        return True
+    if is_crawler_traffic(platform, model, os_version, country):
         return True
     return platform == "iOS" and city in APPLE_REVIEW_CITIES
 
@@ -147,12 +180,29 @@ def is_sandbox_revenue_event(event_name):
     return event_name in SANDBOX_IMPORTED_EVENTS
 
 
-def run_report(token, prop, start, end):
+def run_report(token, prop, start, end, excluded=None):
     """Rows keyed by (date, cc, city, platform) with active users, new users and uninstalls.
 
     Uninstalls = count of GA4's automatically collected `app_remove` event, which Google only
-    records on Android; iOS rows therefore always carry 0 there."""
+    records on Android; iOS rows therefore always carry 0 there. `excluded`, when given, is a dict
+    that receives the dropped rows per rule ("crawler", "test") so the caller can print them."""
     rows = {}
+    excluded = excluded if excluded is not None else {}
+    excluded.setdefault("crawler", 0)
+    excluded.setdefault("crawler_new_users", 0)
+    excluded.setdefault("test", 0)
+
+    def drop(d, new_users=0):
+        # crawler first so the two counters stay disjoint (the farm is not an emulator model)
+        if is_crawler_traffic(d[4], d[5], d[6], d[2]):
+            excluded["crawler"] += 1
+            excluded["crawler_new_users"] += new_users
+            return True
+        if is_test_traffic(d[4], d[3], d[5]):
+            excluded["test"] += 1
+            return True
+        return False
+
     users = _report(token, prop, {"dateRanges": [{"startDate": start, "endDate": end}], "dimensions": DIMS,
                                   "metrics": [{"name": "activeUsers"}, {"name": "newUsers"}], "limit": 100000})
     if users is None:
@@ -160,7 +210,7 @@ def run_report(token, prop, start, end):
     for row in users:
         d = [x["value"] for x in row["dimensionValues"]]
         m = [int(float(x["value"])) for x in row["metricValues"]]
-        if is_test_traffic(d[4], d[3], d[5]):
+        if drop(d, m[1]):
             continue
         rows[tuple(d)] = {"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
                           "users": m[0], "new": m[1], "removed": 0}
@@ -170,7 +220,7 @@ def run_report(token, prop, start, end):
                                                                    "stringFilter": {"matchType": "EXACT", "value": "app_remove"}}}})
     for row in removed or []:
         d = [x["value"] for x in row["dimensionValues"]]
-        if is_test_traffic(d[4], d[3], d[5]):
+        if drop(d):
             continue
         n = int(float(row["metricValues"][0]["value"]))
         rows.setdefault(tuple(d), {"date": d[0], "cc": d[1], "country": d[2], "city": d[3], "platform": d[4],
@@ -191,9 +241,15 @@ def main():
     cities, centroids = load_cities()
     points, missing = [], {}
     status = {}
+    crawler = {}
     for app_id, label, prop, colour in APPS:
-        rows = run_report(token, prop, f"{DAYS}daysAgo", "yesterday")
+        excluded = {}
+        rows = run_report(token, prop, f"{DAYS}daysAgo", "yesterday", excluded)
         status[app_id] = len(rows)
+        crawler[app_id] = excluded.get("crawler_new_users", 0)
+        print(f"{label}: excluded: {excluded.get('crawler', 0)} crawler rows "
+              f"({excluded.get('crawler_new_users', 0)} new users; OnePlus8Pro/Android 11 or country (not set)), "
+              f"{excluded.get('test', 0)} emulator/simulator rows", file=sys.stderr)
         for r in rows:
             cc, city = r["cc"], r["city"]
             hit = cities.get((cc, city.lower())) if city and city != "(not set)" else None
@@ -210,9 +266,10 @@ def main():
     data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "days": DAYS,
             "apps": [{"id": a, "name": n, "color": c} for a, n, _, c in APPS],
             "metrics": {"u": "Active users", "n": "First-time users", "r": "Uninstalls (Android only)"},
-            "excluded": "iOS Simulator runs, Android emulators and Apple App Review devices (Cupertino area) are not counted; "
+            "excluded": "iOS Simulator runs, Android emulators, Apple App Review devices (Cupertino area) and Google Play's "
+                        "crawler (OnePlus8Pro on Android 11, Android rows with no country) are not counted; "
                         "no revenue is read from GA4 (the App Store Connect link imports sandbox purchases as real money)",
-            "rows_per_app": status, "points": points}
+            "rows_per_app": status, "crawler_new_users_per_app": crawler, "points": points}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     json.dump(data, open(tmp, "w"), separators=(",", ":"))
